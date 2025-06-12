@@ -15,6 +15,7 @@ COPY . .
 
 # Собираем приложение
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o system-info-server .
+RUN chmod +x system-info-server
 
 # Финальная стадия
 FROM alpine:latest
@@ -37,9 +38,6 @@ RUN chown appuser:appgroup system-info-server
 
 # Переключаемся на пользователя appuser
 USER appuser
-
-# Делаем файл исполняемым
-RUN chmod +x system-info-server
 
 # Открываем порт (если понадобится в будущем)
 EXPOSE 8080
