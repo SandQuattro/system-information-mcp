@@ -1,21 +1,16 @@
-version: '3.8'
-
 services:
   mcp-system-info:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: mcp-system-info-server
-    restart: unless-stopped
-    
-    # Переменные окружения
+    networks:
+      - dokploy-network
     environment:
-      - PORT=8080
-      - LOG_LEVEL=info
-    
-    # Проброс портов (для HTTP API и SSE)
+      - PORT=${PORT}
+      - LOG_LEVEL=${LOG_LEVEL}
+    restart: unless-stopped
     ports:
-      - "8080:8080"
+      - ${PORT}:8080
     
     # Ограничения ресурсов
     deploy:
@@ -41,13 +36,7 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
-    
-    # Метки для организации
-    labels:
-      - "project=mcp-system-info"
-      - "service=system-monitor"
-      - "version=1.0.0"
 
 networks:
-  default:
-    name: mcp-network 
+  dokploy-network:
+    external: true
