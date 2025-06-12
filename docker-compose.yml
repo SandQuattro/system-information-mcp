@@ -1,0 +1,53 @@
+version: '3.8'
+
+services:
+  mcp-system-info:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mcp-system-info-server
+    restart: unless-stopped
+    
+    # Переменные окружения
+    environment:
+      - PORT=8080
+      - LOG_LEVEL=info
+    
+    # Проброс портов (если понадобится HTTP API)
+    ports:
+      - "8080:8080"
+    
+    # Ограничения ресурсов
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+    
+    # Мониторинг здоровья
+    healthcheck:
+      test: ["CMD", "ps", "aux"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    
+    # Логирование
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    
+    # Метки для организации
+    labels:
+      - "project=mcp-system-info"
+      - "service=system-monitor"
+      - "version=1.0.0"
+
+networks:
+  default:
+    name: mcp-network 

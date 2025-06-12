@@ -1,0 +1,30 @@
+# Исключаем бинарные файлы
+system-info-server
+
+# Исключаем Docker файлы
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Исключаем документацию
+README.md
+*.md
+
+# Исключаем Git
+.git
+.gitignore
+
+# Исключаем IDE файлы
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Исключаем временные файлы
+*.tmp
+*.log
+
+# Исключаем тестовые файлы
+*_test.go
+test/
+tests/ 
