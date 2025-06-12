@@ -22,11 +22,31 @@ go mod tidy
 
 ## Запуск
 
+### Локальный запуск
+
 ```bash
 go run main.go
 ```
 
+### Запуск через Docker
+
+```bash
+# Сборка образа
+docker build -t mcp-system-info .
+
+# Запуск контейнера
+docker run -p 8080:8080 mcp-system-info
+```
+
+### Запуск через Docker Compose
+
+```bash
+docker-compose up -d
+```
+
 ## Использование
+
+### MCP Tool
 
 Сервер предоставляет tool: `get_system_info`
 
@@ -47,6 +67,16 @@ go run main.go
   }
 }
 ```
+
+### SSE (Server-Sent Events)
+
+Для получения системной информации в режиме реального времени:
+
+```bash
+curl http://localhost:8080/sse
+```
+
+Данные обновляются каждую секунду и отправляются с типом события `system-info`.
 
 ## Библиотеки
 

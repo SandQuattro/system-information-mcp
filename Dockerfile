@@ -20,8 +20,8 @@ RUN chmod +x system-info-server
 # Финальная стадия
 FROM alpine:latest
 
-# Устанавливаем ca-certificates для HTTPS запросов
-RUN apk --no-cache add ca-certificates
+# Устанавливаем ca-certificates для HTTPS запросов и curl для healthcheck
+RUN apk --no-cache add ca-certificates curl
 
 # Создаем пользователя для безопасности
 RUN addgroup -g 1001 -S appgroup && \
@@ -39,7 +39,10 @@ RUN chown appuser:appgroup system-info-server
 # Переключаемся на пользователя appuser
 USER appuser
 
-# Открываем порт (если понадобится в будущем)
+# Устанавливаем переменные окружения
+ENV PORT=8080
+
+# Открываем порт
 EXPOSE 8080
 
 # Запускаем сервер

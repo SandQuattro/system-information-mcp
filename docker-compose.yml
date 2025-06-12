@@ -13,7 +13,7 @@ services:
       - PORT=8080
       - LOG_LEVEL=info
     
-    # Проброс портов (если понадобится HTTP API)
+    # Проброс портов (для HTTP API и SSE)
     ports:
       - "8080:8080"
     
@@ -29,7 +29,7 @@ services:
     
     # Мониторинг здоровья
     healthcheck:
-      test: ["CMD", "ps", "aux"]
+      test: ["CMD", "curl", "-f", "http://localhost:8080/sse"]
       interval: 30s
       timeout: 10s
       retries: 3
