@@ -1,15 +1,19 @@
+ networks:
+  dokploy-network:
+    external: true
+
 services:
   mcp-system-info:
     build:
       context: .
       dockerfile: Dockerfile
     networks:
-      - mcp-network
+      - dokploy-network
     environment:
       - PORT=${PORT}
       - LOG_LEVEL=${LOG_LEVEL}
     ports:
-      - 8080:${PORT}
+      - ${PORT}:8080
     restart: unless-stopped
     
     # Ограничения ресурсов
@@ -24,19 +28,8 @@ services:
     
     # Мониторинг здоровья
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://127.0.0.1:8080/sse"]
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8080"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 10s
-    
-    # Логирование
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-
-networks:
-  mcp-network:
-    driver: bridge
