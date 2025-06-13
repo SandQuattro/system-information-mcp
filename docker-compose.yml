@@ -3,8 +3,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    networks:
-      - dokploy-network
+#    networks:
+#      - dokploy-network
     environment:
       - PORT=${PORT}
       - LOG_LEVEL=${LOG_LEVEL}
@@ -37,6 +37,6 @@ services:
         max-size: "10m"
         max-file: "3"
 
-networks:
-  dokploy-network:
-    external: true
+# networks:
+#  dokploy-network:
+#    external: true
