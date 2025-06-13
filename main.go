@@ -216,7 +216,7 @@ func main() {
 		// Создаем HTTP обработчик для MCP сервера
 		handler := &MCPHandler{server: s}
 
-		addr := fmt.Sprintf(":%d", portNum)
+		addr := fmt.Sprintf("0.0.0.0:%d", portNum)
 		log.Printf("Запуск HTTP сервера на порту %d\n", portNum)
 		log.Printf("SSE доступен по адресу http://%s/sse\n", addr)
 		if err = http.ListenAndServe(addr, handler); err != nil {
