@@ -9,7 +9,7 @@ services:
       - PORT=${PORT}
       - LOG_LEVEL=${LOG_LEVEL}
     ports:
-      - ${PORT}:8080
+      - 8080:${PORT}
     restart: unless-stopped
     
     # Ограничения ресурсов
