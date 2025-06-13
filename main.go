@@ -103,7 +103,14 @@ func (h *MCPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// SSE endpoint для асинхронных сообщений
-	if r.URL.Path == "/sse" && r.Method == http.MethodGet {
+	if r.URL.Path == "/sse" && (r.Method == http.MethodGet || r.Method == http.MethodPost) {
+		// n8n может отправлять POST запрос с конфигурацией
+		if r.Method == http.MethodPost {
+			// Читаем тело запроса (n8n может отправлять конфигурацию)
+			body, _ := io.ReadAll(r.Body)
+			defer r.Body.Close()
+			log.Printf("[SSE] POST запрос с телом: %s", string(body))
+		}
 		h.handleSSE(w, r)
 		return
 	}
