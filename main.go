@@ -297,10 +297,16 @@ func (h *MCPHandler) handleToolsListRequest(request map[string]interface{}, sess
 			"tools": []map[string]interface{}{
 				{
 					"name":        "get_system_info",
-					"description": "Получить информацию о системе (CPU и память)",
+					"description": "Получает информацию о системе: CPU и память",
 					"inputSchema": map[string]interface{}{
-						"type":       "object",
-						"properties": map[string]interface{}{},
+						"type": "object",
+						"properties": map[string]interface{}{
+							"random_string": map[string]interface{}{
+								"type":        "string",
+								"description": "Dummy parameter for no-parameter tools",
+							},
+						},
+						"required": []string{"random_string"},
 					},
 				},
 			},
@@ -552,16 +558,13 @@ func (h *MCPHandler) sendSSEMessage(sessionID string, message interface{}) error
 }
 
 func main() {
-	ctx := context.Background()
-
-	systemInfoTool := mcp.Tool{
-		Name:        "get_system_info",
-		Description: "Получить информацию о системе (CPU и память)",
-		InputSchema: map[string]interface{}{
-			"type":       "object",
-			"properties": map[string]interface{}{},
-		},
-	}
+	systemInfoTool := mcp.NewTool("get_system_info",
+		mcp.WithDescription("Получает информацию о системе: CPU и память"),
+		mcp.WithString("random_string",
+			mcp.Required(),
+			mcp.Description("Dummy parameter for no-parameter tools"),
+		),
+	)
 
 	mcpServer := server.NewMCPServer("mcp-system-info", "1.0.0")
 	mcpServer.AddTool(systemInfoTool, getSystemInfoHandler)
@@ -587,7 +590,7 @@ func main() {
 			log.Fatalf("Ошибка запуска HTTP сервера: %v", err)
 		}
 	} else {
-		if err := mcpServer.Serve(ctx); err != nil {
+		if err := server.ServeStdio(mcpServer); err != nil {
 			log.Fatalf("Ошибка запуска MCP сервера в stdio режиме: %v", err)
 		}
 	}
@@ -596,15 +599,7 @@ func main() {
 func getSystemInfoHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	sysInfo, err := sysinfo.Get()
 	if err != nil {
-		return &mcp.CallToolResult{
-			Content: []interface{}{
-				map[string]interface{}{
-					"type": "text",
-					"text": fmt.Sprintf("Ошибка получения информации о системе: %v", err),
-				},
-			},
-			IsError: true,
-		}, nil
+		return mcp.NewToolResultError(fmt.Sprintf("Ошибка получения информации о системе: %v", err)), nil
 	}
 
 	content := fmt.Sprintf("Системная информация:\n\nCPU:\n- Количество ядер: %d\n- Модель: %s\n- Загрузка: %.2f%%\n\nПамять:\n- Общая: %.2f GB\n- Доступная: %.2f GB\n- Используемая: %.2f GB (%.2f%%)",
@@ -616,13 +611,5 @@ func getSystemInfoHandler(ctx context.Context, request mcp.CallToolRequest) (*mc
 		float64(sysInfo.Memory.Used)/(1024*1024*1024),
 		sysInfo.Memory.UsedPercent)
 
-	return &mcp.CallToolResult{
-		Content: []interface{}{
-			map[string]interface{}{
-				"type": "text",
-				"text": content,
-			},
-		},
-		IsError: false,
-	}, nil
+	return mcp.NewToolResultText(content), nil
 }
