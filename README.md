@@ -2,12 +2,16 @@
 
 Model Context Protocol (MCP) сервер для получения системной информации (CPU и память).
 
+# Спекификация
+
+https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#streamable-http
+
 ## Возможности
 
 - Получение информации о CPU (количество ядер, модель, загрузка)
 - Получение информации о памяти (общая, доступная, используемая)
 - Поддержка двух режимов работы:
-  - **stdio** - для интеграции с Cursor и другими MCP клиентами
+  - **stdio** - для интеграции с Cursor в режиме stdio и другими локальными MCP клиентами
   - **HTTP/SSE** - для веб-интеграции (n8n, браузеры)
 
 ## Установка и запуск
@@ -18,7 +22,7 @@ Model Context Protocol (MCP) сервер для получения систем
 go build -o system-info-server .
 ```
 
-### Запуск в режиме stdio (для Cursor)
+### Запуск в режиме stdio (для Cursor и других локальных MCP клиентов)
 
 ```bash
 ./system-info-server
@@ -34,12 +38,24 @@ PORT=8080 ./system-info-server
 
 Добавьте в файл `~/.cursor/mcp.json`:
 
+### Вариант 1
 ```json
 {
   "mcpServers": {
     "system-info-local": {
-      "command": "/путь/к/system-info-server",
+      "command": "/path/to/system-info-server",
       "args": []
+    }
+  }
+}
+```
+
+### Вариант 2
+```json
+{
+  "mcpServers": {
+    "system-info-remote": {
+      "url": "https://your-domain.com/sse"
     }
   }
 }
@@ -49,7 +65,7 @@ PORT=8080 ./system-info-server
 
 При добавлении MCP сервера в n8n укажите:
 
-- **SSE Endpoint**: `https://ваш-домен/sse`
+- **SSE Endpoint**: `https://your-domain.com/sse`
 
 ## HTTP API
 
@@ -114,10 +130,6 @@ Mcp-Session-Id: <session-id>
 GET /sse?sessionId=<session-id>
 Accept: text/event-stream
 ```
-
-## Тестирование
-
-Используйте `test_sse.html` для тестирования в браузере или `test_mcp_client.py` для тестирования через Python.
 
 ## Docker
 
