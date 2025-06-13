@@ -8,6 +8,8 @@ services:
     environment:
       - PORT=${PORT}
       - LOG_LEVEL=${LOG_LEVEL}
+    ports:
+      - ${PORT}:${PORT}
     restart: unless-stopped
     
     # Ограничения ресурсов
