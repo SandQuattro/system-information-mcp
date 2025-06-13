@@ -1,84 +1,164 @@
-# MCP System Info Server
+# MCP System Information Server
 
-MCP сервер на Go для получения системной информации о CPU и памяти.
+Model Context Protocol (MCP) сервер для получения системной информации (CPU и память).
 
-## Требования
+## Возможности
 
-- Go 1.23 или выше
+- Получение информации о CPU (количество ядер, модель, загрузка)
+- Получение информации о памяти (общая, доступная, используемая)
+- Поддержка двух режимов работы:
+  - **stdio** - для интеграции с Cursor и другими MCP клиентами
+  - **HTTP/SSE** - для веб-интеграции (n8n, браузеры)
 
-## Установка
+## Установка и запуск
 
-1. Перейдите в папку проекта:
+### Сборка из исходников
 
 ```bash
-cd system-information-mcp
+go build -o system-info-server .
 ```
 
-2. Установите зависимости:
+### Запуск в режиме stdio (для Cursor)
 
 ```bash
-go mod tidy
+./system-info-server
 ```
 
-## Запуск
-
-### Локальный запуск
+### Запуск в режиме HTTP сервера
 
 ```bash
-go run main.go
+PORT=8080 ./system-info-server
 ```
 
-### Запуск через Docker
+## Интеграция с Cursor
+
+Добавьте в файл `~/.cursor/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "system-info-local": {
+      "command": "/путь/к/system-info-server",
+      "args": []
+    }
+  }
+}
+```
+
+## Интеграция с n8n
+
+При добавлении MCP сервера в n8n укажите:
+
+- **SSE Endpoint**: `https://ваш-домен/sse`
+
+## HTTP API
+
+### Инициализация
+
+```http
+POST /
+Content-Type: application/json
+
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "initialize",
+  "params": {
+    "protocolVersion": "2025-03-26",
+    "capabilities": {},
+    "clientInfo": {
+      "name": "client-name",
+      "version": "1.0.0"
+    }
+  }
+}
+```
+
+Ответ содержит заголовок `Mcp-Session-Id`, который нужно использовать во всех последующих запросах.
+
+### Получение списка инструментов
+
+```http
+POST /
+Content-Type: application/json
+Mcp-Session-Id: <session-id>
+
+{
+  "jsonrpc": "2.0",
+  "id": 2,
+  "method": "tools/list"
+}
+```
+
+### Вызов инструмента
+
+```http
+POST /
+Content-Type: application/json
+Mcp-Session-Id: <session-id>
+
+{
+  "jsonrpc": "2.0",
+  "id": 3,
+  "method": "tools/call",
+  "params": {
+    "name": "get_system_info",
+    "arguments": {}
+  }
+}
+```
+
+### SSE подключение
+
+```http
+GET /sse?sessionId=<session-id>
+Accept: text/event-stream
+```
+
+## Тестирование
+
+Используйте `test_sse.html` для тестирования в браузере или `test_mcp_client.py` для тестирования через Python.
+
+## Docker
+
+### Сборка образа
 
 ```bash
-# Сборка образа
 docker build -t mcp-system-info .
-
-# Запуск контейнера
-docker run -p 8080:8080 mcp-system-info
 ```
 
-### Запуск через Docker Compose
+### Запуск контейнера
+
+```bash
+# HTTP режим
+docker run -p 8080:8080 -e PORT=8080 mcp-system-info
+
+# stdio режим
+docker run -it mcp-system-info
+```
+
+### Docker Compose
 
 ```bash
 docker-compose up -d
 ```
 
-## Использование
+## Развертывание на сервере
 
-### MCP Tool
+При развертывании за nginx добавьте в конфигурацию:
 
-Сервер предоставляет tool: `get_system_info`
-
-Возвращает информацию о системе в формате JSON:
-
-```json
-{
-  "cpu": {
-    "count": 8,
-    "model_name": "Apple M1",
-    "usage_percent": 15.5
-  },
-  "memory": {
-    "total_bytes": 17179869184,
-    "available_bytes": 8589934592,
-    "used_bytes": 8589934592,
-    "used_percent": 50.0
-  }
+```nginx
+location /sse {
+    proxy_pass http://localhost:8080;
+    proxy_http_version 1.1;
+    proxy_set_header Connection "";
+    proxy_buffering off;
+    proxy_cache off;
+    proxy_set_header X-Accel-Buffering no;
+    proxy_read_timeout 86400;
 }
 ```
 
-### SSE (Server-Sent Events)
+## Лицензия
 
-Для получения системной информации в режиме реального времени:
-
-```bash
-curl http://localhost:8080/sse
-```
-
-Данные обновляются каждую секунду и отправляются с типом события `system-info`.
-
-## Библиотеки
-
-- [mcp-go](https://github.com/mark3labs/mcp-go) v0.32.0 - MCP протокол
-- [gopsutil](https://github.com/shirou/gopsutil) v3.24.5 - Системная информация
+MIT
