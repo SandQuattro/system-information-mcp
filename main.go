@@ -4,46 +4,44 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"log"
 	"net/http"
 	"os"
-	"runtime"
 	"strconv"
-	"time"
+
+	"mcp-system-info/internal/sysinfo"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
-	"github.com/shirou/gopsutil/v3/cpu"
-	"github.com/shirou/gopsutil/v3/mem"
 )
-
-type SystemInfo struct {
-	CPU    CPUInfo    `json:"cpu"`
-	Memory MemoryInfo `json:"memory"`
-}
-
-type CPUInfo struct {
-	Count        int     `json:"count"`
-	ModelName    string  `json:"model_name"`
-	UsagePercent float64 `json:"usage_percent"`
-}
-
-type MemoryInfo struct {
-	Total       uint64  `json:"total_bytes"`
-	Available   uint64  `json:"available_bytes"`
-	Used        uint64  `json:"used_bytes"`
-	UsedPercent float64 `json:"used_percent"`
-}
 
 // MCPHandler - HTTP обработчик для MCP сервера
 type MCPHandler struct {
 	server *server.MCPServer
 }
 
-// ServeHTTP - реализация http.Handler интерфейса
 func (h *MCPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// Обработка SSE запросов
+	// Добавляем CORS заголовки
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
+	// Обработка preflight OPTIONS запросов
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	// Обработка корневого GET-запроса
+	if r.URL.Path == "/" && r.Method == http.MethodGet {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"status":"ok","message":"MCP System Info Server работает","version":"1.0.0"}`))
+		return
+	}
+
+	// sse streaming
 	if r.URL.Path == "/sse" {
 		sseHandler(w, r)
 		return
@@ -55,21 +53,107 @@ func (h *MCPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Читаем тело запроса
-	body, err := ioutil.ReadAll(r.Body)
+	// Простая JSON-RPC обработка для MCP через HTTP
+	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		http.Error(w, "Ошибка чтения запроса", http.StatusBadRequest)
 		return
 	}
 	defer r.Body.Close()
 
-	// Логируем тело запроса для отладки
-	log.Printf("Получен запрос: %s", string(body))
+	log.Printf("Получен MCP запрос: %s", string(body))
 
-	// Простой ответ для проверки работы сервера
+	// Парсим JSON-RPC запрос
+	var request map[string]interface{}
+	if err := json.Unmarshal(body, &request); err != nil {
+		http.Error(w, "Неверный JSON", http.StatusBadRequest)
+		return
+	}
+
+	// Обрабатываем разные типы MCP запросов
+	method, ok := request["method"].(string)
+	if !ok {
+		http.Error(w, "Отсутствует метод", http.StatusBadRequest)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"status":"ok","message":"MCP System Info Server работает"}`))
+
+	response := map[string]interface{}{
+		"jsonrpc": "2.0",
+		"id":      request["id"],
+	}
+
+	switch method {
+	case "tools/list":
+		response["result"] = map[string]interface{}{
+			"tools": []map[string]interface{}{
+				{
+					"name":        "get_system_info",
+					"description": "Получает информацию о системе: CPU и память",
+					"inputSchema": map[string]interface{}{
+						"type":       "object",
+						"properties": map[string]interface{}{},
+					},
+				},
+			},
+		}
+	case "tools/call":
+		// Обрабатываем вызов инструмента
+		params, ok := request["params"].(map[string]interface{})
+		if !ok {
+			response["error"] = map[string]interface{}{
+				"code":    -32602,
+				"message": "Неверные параметры",
+			}
+		} else {
+			toolName, ok := params["name"].(string)
+			if !ok || toolName != "get_system_info" {
+				response["error"] = map[string]interface{}{
+					"code":    -32601,
+					"message": "Неизвестный инструмент",
+				}
+			} else {
+				// Получаем системную информацию напрямую
+				sysInfo, err := sysinfo.Get()
+				if err != nil {
+					response["error"] = map[string]interface{}{
+						"code":    -32603,
+						"message": err.Error(),
+					}
+				} else {
+					jsonData, _ := json.MarshalIndent(sysInfo, "", "  ")
+					response["result"] = map[string]interface{}{
+						"content": []map[string]interface{}{
+							{
+								"type": "text",
+								"text": string(jsonData),
+							},
+						},
+					}
+				}
+			}
+		}
+	case "initialize":
+		response["result"] = map[string]interface{}{
+			"protocolVersion": "2024-11-05",
+			"capabilities": map[string]interface{}{
+				"tools": map[string]interface{}{},
+			},
+			"serverInfo": map[string]interface{}{
+				"name":    "System Info Server",
+				"version": "1.0.0",
+			},
+		}
+	default:
+		response["error"] = map[string]interface{}{
+			"code":    -32601,
+			"message": "Метод не найден",
+		}
+	}
+
+	json.NewEncoder(w).Encode(response)
 }
 
 // sseHandler - обработчик SSE для отправки системной информации в реальном времени
@@ -80,88 +164,30 @@ func sseHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 
-	// Бесконечный цикл отправки данных
-	for {
-		// Получаем системную информацию
-		sysInfo, err := getSystemInfo()
+	sysInfo, err := sysinfo.Get()
+	if err != nil {
+		log.Printf("Ошибка получения системной информации: %v", err)
+		fmt.Fprintf(w, "event: error\ndata: %s\n\n", err.Error())
+	} else {
+		jsonData, err := json.Marshal(sysInfo)
 		if err != nil {
-			log.Printf("Ошибка получения системной информации: %v", err)
+			log.Printf("Ошибка сериализации: %v", err)
 			fmt.Fprintf(w, "event: error\ndata: %s\n\n", err.Error())
 		} else {
-			// Сериализуем в JSON
-			jsonData, err := json.Marshal(sysInfo)
-			if err != nil {
-				log.Printf("Ошибка сериализации: %v", err)
-				fmt.Fprintf(w, "event: error\ndata: %s\n\n", err.Error())
-			} else {
-				// Отправляем данные
-				fmt.Fprintf(w, "event: system-info\ndata: %s\n\n", string(jsonData))
-			}
+			// Отправляем данные
+			fmt.Fprintf(w, "event: system-info\ndata: %s\n\n", string(jsonData))
 		}
-
-		// Сбрасываем буфер
-		if f, ok := w.(http.Flusher); ok {
-			f.Flush()
-		} else {
-			log.Println("Flusher не поддерживается")
-			break
-		}
-
-		// Задержка между обновлениями
-		time.Sleep(1 * time.Second)
-	}
-}
-
-// getSystemInfo - получение информации о системе
-func getSystemInfo() (*SystemInfo, error) {
-	// Получаем информацию о CPU
-	cpuCount := runtime.NumCPU()
-
-	cpuInfo, err := cpu.Info()
-	if err != nil {
-		return nil, fmt.Errorf("не удалось получить информацию о CPU: %v", err)
 	}
 
-	var modelName string
-	if len(cpuInfo) > 0 {
-		modelName = cpuInfo[0].ModelName
+	// Сбрасываем буфер
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
+	} else {
+		log.Println("Flusher не поддерживается")
 	}
-
-	// Получаем загрузку CPU
-	cpuPercent, err := cpu.Percent(0, false)
-	if err != nil {
-		return nil, fmt.Errorf("не удалось получить загрузку CPU: %v", err)
-	}
-
-	var usagePercent float64
-	if len(cpuPercent) > 0 {
-		usagePercent = cpuPercent[0]
-	}
-
-	// Получаем информацию о памяти
-	memInfo, err := mem.VirtualMemory()
-	if err != nil {
-		return nil, fmt.Errorf("не удалось получить информацию о памяти: %v", err)
-	}
-
-	// Формируем структуру с системной информацией
-	return &SystemInfo{
-		CPU: CPUInfo{
-			Count:        cpuCount,
-			ModelName:    modelName,
-			UsagePercent: usagePercent,
-		},
-		Memory: MemoryInfo{
-			Total:       memInfo.Total,
-			Available:   memInfo.Available,
-			Used:        memInfo.Used,
-			UsedPercent: memInfo.UsedPercent,
-		},
-	}, nil
 }
 
 func main() {
-	// Создаем новый MCP сервер
 	s := server.NewMCPServer(
 		"System Info Server",
 		"1.0.0",
@@ -183,7 +209,7 @@ func main() {
 		// Запускаем HTTP сервер, если указан порт
 		portNum, err := strconv.Atoi(port)
 		if err != nil {
-			fmt.Printf("Ошибка преобразования порта: %v, использую порт 8080\n", err)
+			log.Printf("Ошибка преобразования порта: %v, использую порт 8080\n", err)
 			portNum = 8080
 		}
 
@@ -191,28 +217,25 @@ func main() {
 		handler := &MCPHandler{server: s}
 
 		addr := fmt.Sprintf(":%d", portNum)
-		fmt.Printf("Запуск HTTP сервера на порту %d\n", portNum)
-		fmt.Printf("SSE доступен по адресу http://localhost:%d/sse\n", portNum)
-		if err := http.ListenAndServe(addr, handler); err != nil {
+		log.Printf("Запуск HTTP сервера на порту %d\n", portNum)
+		log.Printf("SSE доступен по адресу http://localhost:%d/sse\n", portNum)
+		if err = http.ListenAndServe(addr, handler); err != nil {
 			log.Fatalf("Ошибка HTTP сервера: %v\n", err)
 		}
 	} else {
-		// Запускаем сервер через stdio, если порт не указан
-		fmt.Println("Запуск сервера через stdio")
+		log.Println("Запуск сервера через stdio")
 		if err := server.ServeStdio(s); err != nil {
-			fmt.Printf("Ошибка сервера: %v\n", err)
+			log.Printf("Ошибка сервера: %v\n", err)
 		}
 	}
 }
 
 func getSystemInfoHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	// Получаем системную информацию
-	sysInfo, err := getSystemInfo()
+	sysInfo, err := sysinfo.Get()
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
 
-	// Конвертируем в JSON
 	jsonData, err := json.MarshalIndent(sysInfo, "", "  ")
 	if err != nil {
 		return mcp.NewToolResultError("Ошибка сериализации данных: " + err.Error()), nil
