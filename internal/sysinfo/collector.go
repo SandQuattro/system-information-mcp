@@ -8,9 +8,7 @@ import (
 	"github.com/shirou/gopsutil/v3/mem"
 )
 
-// Get возвращает текущую информацию о системе (CPU и память)
 func Get() (*SystemInfo, error) {
-	// Получаем информацию о CPU
 	cpuCount := runtime.NumCPU()
 
 	cpuInfo, err := cpu.Info()
@@ -23,7 +21,6 @@ func Get() (*SystemInfo, error) {
 		modelName = cpuInfo[0].ModelName
 	}
 
-	// Получаем загрузку CPU
 	cpuPercent, err := cpu.Percent(0, false)
 	if err != nil {
 		return nil, fmt.Errorf("не удалось получить загрузку CPU: %v", err)
@@ -34,13 +31,11 @@ func Get() (*SystemInfo, error) {
 		usagePercent = cpuPercent[0]
 	}
 
-	// Получаем информацию о памяти
 	memInfo, err := mem.VirtualMemory()
 	if err != nil {
 		return nil, fmt.Errorf("не удалось получить информацию о памяти: %v", err)
 	}
 
-	// Формируем структуру с системной информацией
 	return &SystemInfo{
 		CPU: CPUInfo{
 			Count:        cpuCount,

@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"os"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -20,13 +19,11 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 )
 
-// SessionManager управляет MCP сессиями
 type SessionManager struct {
 	mu       sync.RWMutex
 	sessions map[string]*Session
 }
 
-// Session представляет активную MCP сессию
 type Session struct {
 	ID        string
 	CreatedAt time.Time
@@ -34,14 +31,12 @@ type Session struct {
 	mu        sync.Mutex
 }
 
-// NewSessionManager создает новый менеджер сессий
 func NewSessionManager() *SessionManager {
 	return &SessionManager{
 		sessions: make(map[string]*Session),
 	}
 }
 
-// CreateSession создает новую сессию
 func (sm *SessionManager) CreateSession() string {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
@@ -55,7 +50,6 @@ func (sm *SessionManager) CreateSession() string {
 	return sessionID
 }
 
-// GetSession возвращает сессию по ID
 func (sm *SessionManager) GetSession(id string) (*Session, bool) {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
@@ -63,7 +57,6 @@ func (sm *SessionManager) GetSession(id string) (*Session, bool) {
 	return session, ok
 }
 
-// RemoveSession удаляет сессию
 func (sm *SessionManager) RemoveSession(id string) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
@@ -73,30 +66,25 @@ func (sm *SessionManager) RemoveSession(id string) {
 	}
 }
 
-// MCPHandler - HTTP обработчик для MCP сервера
 type MCPHandler struct {
 	server               *server.MCPServer
 	sessionManager       *SessionManager
-	lastCreatedSessionID sync.Map // для временного хранения ID новой сессии
+	lastCreatedSessionID sync.Map
 }
 
 func (h *MCPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// Логируем все запросы
 	log.Printf("[HTTP] %s %s Headers: %v", r.Method, r.URL.Path, r.Header)
 
-	// Добавляем CORS заголовки
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS, DELETE")
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Mcp-Session-Id, Accept, Last-Event-Id")
 	w.Header().Set("Access-Control-Expose-Headers", "Mcp-Session-Id")
 
-	// Обработка preflight OPTIONS запросов
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusOK)
 		return
 	}
 
-	// Обработка корневого GET-запроса для проверки работоспособности
 	if r.URL.Path == "/" && r.Method == http.MethodGet && r.Header.Get("Accept") != "text/event-stream" {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
@@ -104,8 +92,6 @@ func (h *MCPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// MCP endpoint - единый endpoint согласно спецификации Streamable HTTP
-	// Поддерживаем как корневой путь "/", так и "/sse" для обратной совместимости
 	if r.URL.Path == "/" || r.URL.Path == "/sse" {
 		switch r.Method {
 		case http.MethodPost:
@@ -123,9 +109,7 @@ func (h *MCPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	http.Error(w, "Not Found", http.StatusNotFound)
 }
 
-// handleMCPPost обрабатывает POST запросы на MCP endpoint
 func (h *MCPHandler) handleMCPPost(w http.ResponseWriter, r *http.Request) {
-	// Проверяем Accept заголовок
 	acceptHeader := r.Header.Get("Accept")
 	log.Printf("[MCP POST] Accept header: %s", acceptHeader)
 
@@ -139,12 +123,9 @@ func (h *MCPHandler) handleMCPPost(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("[MCP POST] Получен запрос: %s", string(body))
 
-	// Парсим JSON-RPC сообщение(я)
 	var messages []map[string]interface{}
 
-	// Пробуем распарсить как массив сообщений
 	if err := json.Unmarshal(body, &messages); err != nil {
-		// Если не массив, пробуем как одиночное сообщение
 		var singleMessage map[string]interface{}
 		if err := json.Unmarshal(body, &singleMessage); err != nil {
 			log.Printf("[MCP POST] Ошибка парсинга JSON: %v", err)
@@ -154,20 +135,17 @@ func (h *MCPHandler) handleMCPPost(w http.ResponseWriter, r *http.Request) {
 		messages = []map[string]interface{}{singleMessage}
 	}
 
-	// Определяем тип сообщений
 	hasRequests := false
 	responses := []map[string]interface{}{}
 
 	for _, msg := range messages {
 		if _, hasID := msg["id"]; hasID {
 			if _, hasMethod := msg["method"]; hasMethod {
-				// Это request
 				hasRequests = true
 			}
 		}
 	}
 
-	// Если есть requests, обрабатываем и возвращаем ответы
 	if hasRequests {
 		sessionID := r.Header.Get("Mcp-Session-Id")
 
@@ -175,7 +153,6 @@ func (h *MCPHandler) handleMCPPost(w http.ResponseWriter, r *http.Request) {
 			if method, ok := msg["method"].(string); ok {
 				response := h.handleJSONRPCMessage(msg, sessionID)
 				if response != nil {
-					// Для initialize добавляем session ID в заголовок
 					if method == "initialize" && response["result"] != nil {
 						if value, ok := h.lastCreatedSessionID.Load("sessionID"); ok {
 							if newSessionID, ok := value.(string); ok {
@@ -189,134 +166,96 @@ func (h *MCPHandler) handleMCPPost(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		// Возвращаем ответы как JSON (простой случай без SSE)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 
-		// Если один ответ - возвращаем объект, если несколько - массив
 		if len(responses) == 1 {
 			json.NewEncoder(w).Encode(responses[0])
 		} else {
 			json.NewEncoder(w).Encode(responses)
 		}
 	} else {
-		// Только notifications или responses - возвращаем 202 Accepted
 		w.WriteHeader(http.StatusAccepted)
 	}
 }
 
-// handleMCPGet обрабатывает GET запросы на MCP endpoint (для SSE)
 func (h *MCPHandler) handleMCPGet(w http.ResponseWriter, r *http.Request) {
-	// Проверяем Accept заголовок
 	acceptHeader := r.Header.Get("Accept")
-	if !strings.Contains(acceptHeader, "text/event-stream") {
-		log.Printf("[MCP GET] Accept header не содержит text/event-stream: %s", acceptHeader)
-		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
-		return
-	}
+	log.Printf("[MCP GET] Accept header: %s", acceptHeader)
 
-	// Проверка для обратной совместимости
-	// Если клиент подключается к /sse, возможно это старый клиент
-	if r.URL.Path == "/sse" {
-		h.handleSSEWithBackwardCompatibility(w, r)
-	} else {
+	if acceptHeader == "text/event-stream" {
 		h.handleSSE(w, r)
+	} else {
+		if r.URL.Path == "/sse" {
+			h.handleSSEWithBackwardCompatibility(w, r)
+		} else {
+			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		}
 	}
 }
 
-// handleMCPDelete обрабатывает DELETE запросы для завершения сессии
 func (h *MCPHandler) handleMCPDelete(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.Header.Get("Mcp-Session-Id")
-	if sessionID == "" {
-		http.Error(w, "Bad Request: Missing Mcp-Session-Id", http.StatusBadRequest)
-		return
+	if sessionID != "" {
+		log.Printf("[MCP DELETE] Удаляем сессию: %s", sessionID)
+		h.sessionManager.RemoveSession(sessionID)
 	}
 
-	if _, exists := h.sessionManager.GetSession(sessionID); !exists {
-		http.Error(w, "Not Found", http.StatusNotFound)
-		return
-	}
-
-	h.sessionManager.RemoveSession(sessionID)
-	w.WriteHeader(http.StatusNoContent)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`{"status":"ok","message":"Session terminated"}`))
 }
 
-// handleJSONRPCMessage обрабатывает одно JSON-RPC сообщение и возвращает ответ
 func (h *MCPHandler) handleJSONRPCMessage(request map[string]interface{}, sessionID string) map[string]interface{} {
-	method, ok := request["method"].(string)
-	if !ok {
+	log.Printf("[JSON-RPC] Получен запрос: %v", request)
+
+	method, hasMethod := request["method"].(string)
+	id, hasID := request["id"]
+
+	if !hasMethod {
 		return nil
 	}
 
-	log.Printf("[JSON-RPC] Обработка метода: %s, Session ID: %s", method, sessionID)
-
-	// Обработка инициализации
 	if method == "initialize" {
-		if sessionID != "" {
-			return map[string]interface{}{
-				"jsonrpc": "2.0",
-				"id":      request["id"],
-				"error": map[string]interface{}{
-					"code":    -32600,
-					"message": "Initialize не должен содержать Mcp-Session-Id",
-				},
-			}
-		}
 		return h.handleInitializeRequest(request)
 	}
 
-	// Для остальных методов нужна сессия
-	if sessionID == "" {
-		// Автоматическое создание сессии для некоторых методов
-		if method == "tools/list" || method == "tools/call" {
-			sessionID = h.sessionManager.CreateSession()
-			h.lastCreatedSessionID.Store("sessionID", sessionID)
-		} else if request["id"] != nil {
+	session, exists := h.sessionManager.GetSession(sessionID)
+	if !exists {
+		if hasID {
 			return map[string]interface{}{
 				"jsonrpc": "2.0",
-				"id":      request["id"],
+				"id":      id,
 				"error": map[string]interface{}{
-					"code":    -32600,
-					"message": "Отсутствует Mcp-Session-Id",
+					"code":    -32001,
+					"message": "Session not found",
 				},
 			}
 		}
-	}
-
-	// Проверяем сессию
-	session, exists := h.sessionManager.GetSession(sessionID)
-	if !exists && request["id"] != nil {
-		return map[string]interface{}{
-			"jsonrpc": "2.0",
-			"id":      request["id"],
-			"error": map[string]interface{}{
-				"code":    -32600,
-				"message": "Неверный Mcp-Session-Id",
-			},
-		}
-	}
-
-	// Обрабатываем методы
-	switch method {
-	case "initialized":
-		// Notification - нет ответа
-		log.Printf("[JSON-RPC] Получена initialized нотификация")
 		return nil
+	}
 
+	switch method {
 	case "tools/list":
+		if !hasID {
+			return nil
+		}
 		return h.handleToolsListRequest(request, session)
 
 	case "tools/call":
+		if !hasID {
+			return nil
+		}
 		return h.handleToolCallRequest(request, session)
 
 	default:
-		if request["id"] != nil {
+		if hasID {
 			return map[string]interface{}{
 				"jsonrpc": "2.0",
-				"id":      request["id"],
+				"id":      id,
 				"error": map[string]interface{}{
 					"code":    -32601,
-					"message": "Метод не найден",
+					"message": "Method not found",
 				},
 			}
 		}
@@ -324,48 +263,44 @@ func (h *MCPHandler) handleJSONRPCMessage(request map[string]interface{}, sessio
 	}
 }
 
-// handleInitializeRequest обрабатывает запрос инициализации и возвращает ответ
 func (h *MCPHandler) handleInitializeRequest(request map[string]interface{}) map[string]interface{} {
-	log.Printf("[Initialize] Обработка запроса инициализации")
+	id := request["id"]
 
-	// Создаем новую сессию
 	sessionID := h.sessionManager.CreateSession()
-	h.lastCreatedSessionID.Store("sessionID", sessionID)
-	log.Printf("[Initialize] Создана новая сессия: %s", sessionID)
+	log.Printf("[INITIALIZE] Создана новая сессия: %s", sessionID)
 
-	// Формируем ответ
+	h.lastCreatedSessionID.Store("sessionID", sessionID)
+
 	return map[string]interface{}{
 		"jsonrpc": "2.0",
-		"id":      request["id"],
+		"id":      id,
 		"result": map[string]interface{}{
 			"protocolVersion": "2025-03-26",
 			"capabilities": map[string]interface{}{
 				"tools": map[string]interface{}{},
 			},
 			"serverInfo": map[string]interface{}{
-				"name":    "System Info Server",
+				"name":    "mcp-system-info",
 				"version": "1.0.0",
 			},
 		},
 	}
 }
 
-// handleToolsListRequest обрабатывает запрос списка инструментов и возвращает ответ
 func (h *MCPHandler) handleToolsListRequest(request map[string]interface{}, session *Session) map[string]interface{} {
-	log.Printf("[Tools/List] Обработка запроса списка инструментов")
+	id := request["id"]
 
 	return map[string]interface{}{
 		"jsonrpc": "2.0",
-		"id":      request["id"],
+		"id":      id,
 		"result": map[string]interface{}{
 			"tools": []map[string]interface{}{
 				{
 					"name":        "get_system_info",
-					"description": "Получает информацию о системе: CPU и память",
+					"description": "Получить информацию о системе (CPU и память)",
 					"inputSchema": map[string]interface{}{
 						"type":       "object",
 						"properties": map[string]interface{}{},
-						"required":   []string{},
 					},
 				},
 			},
@@ -373,324 +308,287 @@ func (h *MCPHandler) handleToolsListRequest(request map[string]interface{}, sess
 	}
 }
 
-// handleToolCallRequest обрабатывает вызов инструмента и возвращает ответ
 func (h *MCPHandler) handleToolCallRequest(request map[string]interface{}, session *Session) map[string]interface{} {
-	log.Printf("[Tools/Call] Обработка вызова инструмента")
-
+	id := request["id"]
 	params, ok := request["params"].(map[string]interface{})
 	if !ok {
-		log.Printf("[Tools/Call] Ошибка: неверные параметры")
 		return map[string]interface{}{
 			"jsonrpc": "2.0",
-			"id":      request["id"],
+			"id":      id,
 			"error": map[string]interface{}{
 				"code":    -32602,
-				"message": "Неверные параметры",
+				"message": "Invalid params",
 			},
 		}
 	}
 
 	toolName, ok := params["name"].(string)
-	if !ok || toolName != "get_system_info" {
-		log.Printf("[Tools/Call] Ошибка: неизвестный инструмент: %v", toolName)
+	if !ok {
 		return map[string]interface{}{
 			"jsonrpc": "2.0",
-			"id":      request["id"],
+			"id":      id,
 			"error": map[string]interface{}{
-				"code":    -32601,
-				"message": "Неизвестный инструмент",
+				"code":    -32602,
+				"message": "Missing tool name",
 			},
 		}
 	}
 
-	log.Printf("[Tools/Call] Вызов инструмента: %s", toolName)
+	if toolName == "get_system_info" {
+		sysInfo, err := sysinfo.Get()
+		if err != nil {
+			return map[string]interface{}{
+				"jsonrpc": "2.0",
+				"id":      id,
+				"error": map[string]interface{}{
+					"code":    -32603,
+					"message": fmt.Sprintf("Ошибка получения информации о системе: %v", err),
+				},
+			}
+		}
 
-	// Получаем системную информацию
-	sysInfo, err := sysinfo.Get()
-	if err != nil {
-		log.Printf("[Tools/Call] Ошибка получения системной информации: %v", err)
 		return map[string]interface{}{
 			"jsonrpc": "2.0",
-			"id":      request["id"],
-			"error": map[string]interface{}{
-				"code":    -32603,
-				"message": err.Error(),
+			"id":      id,
+			"result": map[string]interface{}{
+				"content": []map[string]interface{}{
+					{
+						"type": "text",
+						"text": fmt.Sprintf("Системная информация:\n\nCPU:\n- Количество ядер: %d\n- Модель: %s\n- Загрузка: %.2f%%\n\nПамять:\n- Общая: %.2f GB\n- Доступная: %.2f GB\n- Используемая: %.2f GB (%.2f%%)",
+							sysInfo.CPU.Count,
+							sysInfo.CPU.ModelName,
+							sysInfo.CPU.UsagePercent,
+							float64(sysInfo.Memory.Total)/(1024*1024*1024),
+							float64(sysInfo.Memory.Available)/(1024*1024*1024),
+							float64(sysInfo.Memory.Used)/(1024*1024*1024),
+							sysInfo.Memory.UsedPercent),
+					},
+				},
+				"isError": false,
 			},
 		}
 	}
 
-	jsonData, _ := json.MarshalIndent(sysInfo, "", "  ")
 	return map[string]interface{}{
 		"jsonrpc": "2.0",
-		"id":      request["id"],
-		"result": map[string]interface{}{
-			"content": []map[string]interface{}{
-				{
-					"type": "text",
-					"text": string(jsonData),
-				},
-			},
+		"id":      id,
+		"error": map[string]interface{}{
+			"code":    -32601,
+			"message": "Tool not found",
 		},
 	}
 }
 
-// handleSSE обрабатывает Server-Sent Events соединение
 func (h *MCPHandler) handleSSE(w http.ResponseWriter, r *http.Request) {
-	// Получаем session ID из заголовка или URL параметра
 	sessionID := r.Header.Get("Mcp-Session-Id")
 	if sessionID == "" {
-		// Пробуем получить из URL параметра (для браузерных клиентов)
 		sessionID = r.URL.Query().Get("sessionId")
-		if sessionID == "" {
-			sessionID = r.URL.Query().Get("session")
-		}
 	}
 
-	log.Printf("[SSE] Попытка подключения с session ID: %s", sessionID)
-
-	var session *Session
-	var exists bool
-
+	autoCreatedSession := false
 	if sessionID == "" {
-		// Для клиентов без сессии создаем новую
-		log.Printf("[SSE] Session ID не предоставлен, создаем новую сессию")
 		sessionID = h.sessionManager.CreateSession()
-		session, exists = h.sessionManager.GetSession(sessionID)
-		log.Printf("[SSE] Создана автоматическая сессия: %s", sessionID)
-
-		// Отправляем session ID в заголовке ответа
-		w.Header().Set("Mcp-Session-Id", sessionID)
-	} else {
-		// Проверяем существование сессии
-		session, exists = h.sessionManager.GetSession(sessionID)
-		if !exists {
-			log.Printf("[SSE] Ошибка: неверный session ID: %s", sessionID)
-			http.Error(w, "Bad Request: Invalid Mcp-Session-Id", http.StatusBadRequest)
-			return
-		}
+		autoCreatedSession = true
+		log.Printf("[SSE] Создана новая сессия: %s", sessionID)
 	}
 
-	// Настройка заголовков для SSE
+	w.Header().Set("Mcp-Session-Id", sessionID)
+
+	session, exists := h.sessionManager.GetSession(sessionID)
+	if !exists {
+		http.Error(w, "Session not found", http.StatusNotFound)
+		return
+	}
+
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("X-Accel-Buffering", "no") // Для nginx
+	w.Header().Set("X-Accel-Buffering", "no")
 
-	// Создаем flusher для отправки данных
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		log.Printf("[SSE] Ошибка: SSE не поддерживается")
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		http.Error(w, "Streaming unsupported", http.StatusInternalServerError)
 		return
 	}
 
-	// Согласно новой спецификации Streamable HTTP, сервер НЕ отправляет endpoint event
-	// Сервер может отправлять только requests и notifications, но НЕ responses
+	done := make(chan struct{})
 
-	log.Printf("[SSE] Клиент подключился для сессии %s", sessionID)
+	go func() {
+		select {
+		case <-r.Context().Done():
+			log.Printf("[SSE] Клиент отключился, сессия: %s", sessionID)
+			if autoCreatedSession {
+				h.sessionManager.RemoveSession(sessionID)
+			}
+			close(done)
+		case <-done:
+		}
+	}()
 
-	// Канал для завершения
-	done := r.Context().Done()
+	pingTicker := time.NewTicker(30 * time.Second)
+	defer pingTicker.Stop()
 
-	// Основной цикл обработки SSE
 	for {
 		select {
 		case <-done:
-			// Клиент отключился
-			log.Printf("[SSE] Клиент отключился для сессии %s", sessionID)
-			// Удаляем автоматически созданную сессию
-			h.sessionManager.RemoveSession(sessionID)
 			return
-
 		case message, ok := <-session.SSEChan:
 			if !ok {
-				// Канал закрыт
-				log.Printf("[SSE] Канал закрыт для сессии %s", sessionID)
 				return
 			}
 
-			// Отправляем сообщение клиенту
 			jsonData, err := json.Marshal(message)
 			if err != nil {
-				log.Printf("[SSE] Ошибка сериализации сообщения: %v", err)
 				continue
 			}
 
-			// Отправляем как data-only event (без имени события)
-			fmt.Fprintf(w, "data: %s\n\n", string(jsonData))
+			fmt.Fprintf(w, "data: %s\n\n", jsonData)
 			flusher.Flush()
-
-		case <-time.After(30 * time.Second):
-			// Отправляем ping для поддержания соединения
+		case <-pingTicker.C:
 			fmt.Fprintf(w, ": ping\n\n")
 			flusher.Flush()
 		}
 	}
 }
 
-// handleSSEWithBackwardCompatibility обрабатывает SSE с поддержкой старого протокола
 func (h *MCPHandler) handleSSEWithBackwardCompatibility(w http.ResponseWriter, r *http.Request) {
-	// Получаем session ID из заголовка или URL параметра
 	sessionID := r.Header.Get("Mcp-Session-Id")
 	if sessionID == "" {
-		// Пробуем получить из URL параметра (для браузерных клиентов)
 		sessionID = r.URL.Query().Get("sessionId")
-		if sessionID == "" {
-			sessionID = r.URL.Query().Get("session")
-		}
 	}
 
-	log.Printf("[SSE] Попытка подключения с session ID: %s (режим обратной совместимости)", sessionID)
-
-	var session *Session
-	var exists bool
-
+	autoCreatedSession := false
 	if sessionID == "" {
-		// Для клиентов без сессии создаем новую
-		log.Printf("[SSE] Session ID не предоставлен, создаем новую сессию")
 		sessionID = h.sessionManager.CreateSession()
-		session, exists = h.sessionManager.GetSession(sessionID)
-		log.Printf("[SSE] Создана автоматическая сессия: %s", sessionID)
-
-		// Отправляем session ID в заголовке ответа
-		w.Header().Set("Mcp-Session-Id", sessionID)
-	} else {
-		// Проверяем существование сессии
-		session, exists = h.sessionManager.GetSession(sessionID)
-		if !exists {
-			log.Printf("[SSE] Ошибка: неверный session ID: %s", sessionID)
-			http.Error(w, "Bad Request: Invalid Mcp-Session-Id", http.StatusBadRequest)
-			return
-		}
+		autoCreatedSession = true
+		log.Printf("[SSE] Создана новая сессия для старого клиента: %s", sessionID)
 	}
 
-	// Настройка заголовков для SSE
+	w.Header().Set("Mcp-Session-Id", sessionID)
+
+	session, exists := h.sessionManager.GetSession(sessionID)
+	if !exists {
+		http.Error(w, "Session not found", http.StatusNotFound)
+		return
+	}
+
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("X-Accel-Buffering", "no") // Для nginx
+	w.Header().Set("X-Accel-Buffering", "no")
 
-	// Создаем flusher для отправки данных
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		log.Printf("[SSE] Ошибка: SSE не поддерживается")
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		http.Error(w, "Streaming unsupported", http.StatusInternalServerError)
 		return
 	}
 
-	// Для обратной совместимости отправляем endpoint event
-	// (старый протокол 2024-11-05 требует это)
-	endpointData := map[string]string{
-		"url":    "/",
-		"method": "POST",
+	endpointMessage := map[string]interface{}{
+		"jsonrpc": "2.0",
+		"method":  "notifications/message",
+		"params": map[string]interface{}{
+			"level": "info",
+			"text":  "Connected to MCP System Info Server",
+		},
 	}
-	endpointJSON, _ := json.Marshal(endpointData)
-	fmt.Fprintf(w, "event: endpoint\ndata: %s\n\n", string(endpointJSON))
+	jsonData, _ := json.Marshal(endpointMessage)
+	fmt.Fprintf(w, "event: endpoint\ndata: %s\n\n", jsonData)
 	flusher.Flush()
 
-	log.Printf("[SSE] Клиент подключился для сессии %s (отправлен endpoint event для обратной совместимости)", sessionID)
+	done := make(chan struct{})
 
-	// Канал для завершения
-	done := r.Context().Done()
+	go func() {
+		select {
+		case <-r.Context().Done():
+			log.Printf("[SSE] Клиент отключился (старый протокол), сессия: %s", sessionID)
+			if autoCreatedSession {
+				h.sessionManager.RemoveSession(sessionID)
+			}
+			close(done)
+		case <-done:
+		}
+	}()
 
-	// Основной цикл обработки SSE
+	pingTicker := time.NewTicker(30 * time.Second)
+	defer pingTicker.Stop()
+
 	for {
 		select {
 		case <-done:
-			// Клиент отключился
-			log.Printf("[SSE] Клиент отключился для сессии %s", sessionID)
-			// Удаляем автоматически созданную сессию
-			h.sessionManager.RemoveSession(sessionID)
 			return
-
 		case message, ok := <-session.SSEChan:
 			if !ok {
-				// Канал закрыт
-				log.Printf("[SSE] Канал закрыт для сессии %s", sessionID)
 				return
 			}
 
-			// Отправляем сообщение клиенту
 			jsonData, err := json.Marshal(message)
 			if err != nil {
-				log.Printf("[SSE] Ошибка сериализации сообщения: %v", err)
 				continue
 			}
 
-			// Для старого протокола используем event: message
-			fmt.Fprintf(w, "event: message\ndata: %s\n\n", string(jsonData))
+			fmt.Fprintf(w, "event: message\ndata: %s\n\n", jsonData)
 			flusher.Flush()
-
-		case <-time.After(30 * time.Second):
-			// Отправляем ping для поддержания соединения
+		case <-pingTicker.C:
 			fmt.Fprintf(w, ": ping\n\n")
 			flusher.Flush()
 		}
 	}
 }
 
-// sendSSEMessage отправляет сообщение через SSE канал сессии
 func (h *MCPHandler) sendSSEMessage(sessionID string, message interface{}) error {
 	session, exists := h.sessionManager.GetSession(sessionID)
 	if !exists {
-		return fmt.Errorf("сессия не найдена")
+		return fmt.Errorf("session not found")
 	}
 
 	select {
 	case session.SSEChan <- message:
 		return nil
 	default:
-		return fmt.Errorf("SSE канал заполнен")
+		return fmt.Errorf("channel full")
 	}
 }
 
 func main() {
-	s := server.NewMCPServer(
-		"System Info Server",
-		"1.0.0",
-		server.WithToolCapabilities(true),
-		server.WithRecovery(),
-	)
+	ctx := context.Background()
 
-	// Создаем tool для получения системной информации
-	systemInfoTool := mcp.NewTool("get_system_info",
-		mcp.WithDescription("Получает информацию о системе: CPU и память"),
-	)
+	systemInfoTool := mcp.Tool{
+		Name:        "get_system_info",
+		Description: "Получить информацию о системе (CPU и память)",
+		InputSchema: map[string]interface{}{
+			"type":       "object",
+			"properties": map[string]interface{}{},
+		},
+	}
 
-	// Добавляем handler для tool'а
-	s.AddTool(systemInfoTool, getSystemInfoHandler)
+	mcpServer := server.NewMCPServer("mcp-system-info", "1.0.0")
+	mcpServer.AddTool(systemInfoTool, getSystemInfoHandler)
 
-	// Определяем режим запуска (HTTP или stdio)
-	port := os.Getenv("PORT")
-	if port != "" {
-		// Запускаем HTTP сервер, если указан порт
-		portNum, err := strconv.Atoi(port)
-		if err != nil {
-			log.Printf("Ошибка преобразования порта: %v, использую порт 8080\n", err)
-			portNum = 8080
+	if port := os.Getenv("PORT"); port != "" {
+		portInt, err := strconv.Atoi(port)
+		if err != nil || portInt <= 0 {
+			log.Fatal("Неверное значение PORT")
 		}
 
-		// Создаем менеджер сессий
 		sessionManager := NewSessionManager()
 
-		// Создаем HTTP обработчик для MCP сервера
 		handler := &MCPHandler{
-			server:         s,
+			server:         mcpServer,
 			sessionManager: sessionManager,
 		}
 
-		addr := fmt.Sprintf("0.0.0.0:%d", portNum)
-		log.Printf("Запуск HTTP сервера на порту %d\n", portNum)
-		log.Printf("SSE доступен по адресу http://%s/sse\n", addr)
-		if err = http.ListenAndServe(addr, handler); err != nil {
-			log.Fatalf("Ошибка HTTP сервера: %v\n", err)
+		addr := fmt.Sprintf(":%d", portInt)
+		log.Printf("Запуск HTTP сервера на порту %s", port)
+		log.Printf("SSE доступен по адресу http://localhost%s/sse", addr)
+
+		if err := http.ListenAndServe(addr, handler); err != nil {
+			log.Fatalf("Ошибка запуска HTTP сервера: %v", err)
 		}
 	} else {
-		log.Println("Запуск сервера через stdio")
-		if err := server.ServeStdio(s); err != nil {
-			log.Printf("Ошибка сервера: %v\n", err)
+		if err := mcpServer.Serve(ctx); err != nil {
+			log.Fatalf("Ошибка запуска MCP сервера в stdio режиме: %v", err)
 		}
 	}
 }
@@ -698,13 +596,33 @@ func main() {
 func getSystemInfoHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	sysInfo, err := sysinfo.Get()
 	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
+		return &mcp.CallToolResult{
+			Content: []interface{}{
+				map[string]interface{}{
+					"type": "text",
+					"text": fmt.Sprintf("Ошибка получения информации о системе: %v", err),
+				},
+			},
+			IsError: true,
+		}, nil
 	}
 
-	jsonData, err := json.MarshalIndent(sysInfo, "", "  ")
-	if err != nil {
-		return mcp.NewToolResultError("Ошибка сериализации данных: " + err.Error()), nil
-	}
+	content := fmt.Sprintf("Системная информация:\n\nCPU:\n- Количество ядер: %d\n- Модель: %s\n- Загрузка: %.2f%%\n\nПамять:\n- Общая: %.2f GB\n- Доступная: %.2f GB\n- Используемая: %.2f GB (%.2f%%)",
+		sysInfo.CPU.Count,
+		sysInfo.CPU.ModelName,
+		sysInfo.CPU.UsagePercent,
+		float64(sysInfo.Memory.Total)/(1024*1024*1024),
+		float64(sysInfo.Memory.Available)/(1024*1024*1024),
+		float64(sysInfo.Memory.Used)/(1024*1024*1024),
+		sysInfo.Memory.UsedPercent)
 
-	return mcp.NewToolResultText(string(jsonData)), nil
+	return &mcp.CallToolResult{
+		Content: []interface{}{
+			map[string]interface{}{
+				"type": "text",
+				"text": content,
+			},
+		},
+		IsError: false,
+	}, nil
 }
