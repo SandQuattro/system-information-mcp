@@ -9,8 +9,6 @@ services:
       - PORT=${PORT}
       - LOG_LEVEL=${LOG_LEVEL}
     restart: unless-stopped
-    ports:
-      - ${PORT}:8080
     
     # Ограничения ресурсов
     deploy:
