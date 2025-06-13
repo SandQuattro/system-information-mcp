@@ -218,7 +218,7 @@ func main() {
 
 		addr := fmt.Sprintf(":%d", portNum)
 		log.Printf("Запуск HTTP сервера на порту %d\n", portNum)
-		log.Printf("SSE доступен по адресу http://localhost:%d/sse\n", portNum)
+		log.Printf("SSE доступен по адресу http://%s/sse\n", addr)
 		if err = http.ListenAndServe(addr, handler); err != nil {
 			log.Fatalf("Ошибка HTTP сервера: %v\n", err)
 		}
