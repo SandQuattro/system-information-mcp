@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"mcp-system-info/internal/handlers"
+	"mcp-system-info/internal/types"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
@@ -47,7 +48,7 @@ func main() {
 			AllowCredentials: false,
 		}))
 
-		sessionManager := handlers.NewSessionManager()
+		sessionManager := types.NewSessionManager()
 		mcpHandler := handlers.NewFiberMCPHandler(mcpServer, sessionManager)
 
 		// Регистрируем маршруты
