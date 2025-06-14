@@ -5,6 +5,11 @@ PATH := $(PROJECT_BIN):$(PATH)
 
 .DEFAULT_GOAL := help
 
+# ---------------------------------- BUILD -------------------------------------
+.PHONY: build
+build: ## build project
+	CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o system-info-server .
+
 # ---------------------------------- LINTING ------------------------------------
 GOLANGCI_LINT = golangci-lint
 
