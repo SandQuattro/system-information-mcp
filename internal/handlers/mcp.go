@@ -2,9 +2,9 @@ package handlers
 
 import (
 	"fmt"
-	"log"
 	"sync"
 
+	"mcp-system-info/internal/logger"
 	"mcp-system-info/internal/sse"
 	"mcp-system-info/internal/streamable"
 	"mcp-system-info/internal/sysinfo"
@@ -47,21 +47,32 @@ func (h *FiberMCPHandler) RegisterRoutes(app *fiber.App) {
 }
 
 func (h *FiberMCPHandler) handleJSONRPCMessage(request map[string]interface{}, sessionID string) map[string]interface{} {
-	log.Printf("[JSON-RPC] Received request: %v", request)
+	mcpLogger := logger.GetMCPLogger("unknown", sessionID)
 
 	method, hasMethod := request["method"].(string)
 	id, hasID := request["id"]
 
+	if hasMethod {
+		mcpLogger = logger.GetMCPLogger(method, sessionID)
+	}
+
+	mcpLogger.Debug().
+		Interface("request", request).
+		Msg("Processing JSON-RPC request")
+
 	if !hasMethod {
+		mcpLogger.Warn().Msg("Request missing method field")
 		return nil
 	}
 
 	if method == "initialize" {
+		mcpLogger.Info().Msg("Handling initialize request")
 		return h.handleInitializeRequest(request)
 	}
 
 	session, exists := h.sessionManager.GetSession(sessionID)
 	if !exists {
+		mcpLogger.Warn().Msg("Session not found")
 		if hasID {
 			return map[string]interface{}{
 				"jsonrpc": "2.0",
@@ -78,17 +89,22 @@ func (h *FiberMCPHandler) handleJSONRPCMessage(request map[string]interface{}, s
 	switch method {
 	case "tools/list":
 		if !hasID {
+			mcpLogger.Warn().Msg("tools/list request missing id field")
 			return nil
 		}
+		mcpLogger.Debug().Msg("Handling tools/list request")
 		return h.handleToolsListRequest(request, session)
 
 	case "tools/call":
 		if !hasID {
+			mcpLogger.Warn().Msg("tools/call request missing id field")
 			return nil
 		}
+		mcpLogger.Debug().Msg("Handling tools/call request")
 		return h.handleToolCallRequest(request, session)
 
 	default:
+		mcpLogger.Warn().Str("method", method).Msg("Unknown method")
 		if hasID {
 			return map[string]interface{}{
 				"jsonrpc": "2.0",
@@ -107,7 +123,10 @@ func (h *FiberMCPHandler) handleInitializeRequest(request map[string]interface{}
 	id := request["id"]
 
 	sessionID := h.sessionManager.CreateSession()
-	log.Printf("[INITIALIZE] Created new session: %s", sessionID)
+
+	logger.Session.Info().
+		Str("session_id", sessionID).
+		Msg("Created new session")
 
 	h.lastCreatedSessionID.Store("sessionID", sessionID)
 
@@ -129,6 +148,10 @@ func (h *FiberMCPHandler) handleInitializeRequest(request map[string]interface{}
 
 func (h *FiberMCPHandler) handleToolsListRequest(request map[string]interface{}, session *types.Session) map[string]interface{} {
 	id := request["id"]
+
+	logger.Tools.Debug().
+		Str("session_id", session.ID).
+		Msg("Listing available tools")
 
 	return map[string]interface{}{
 		"jsonrpc": "2.0",
@@ -158,6 +181,9 @@ func (h *FiberMCPHandler) handleToolCallRequest(request map[string]interface{}, 
 	id := request["id"]
 	params, ok := request["params"].(map[string]interface{})
 	if !ok {
+		logger.Tools.Warn().
+			Str("session_id", session.ID).
+			Msg("Invalid params in tool call request")
 		return map[string]interface{}{
 			"jsonrpc": "2.0",
 			"id":      id,
@@ -170,6 +196,9 @@ func (h *FiberMCPHandler) handleToolCallRequest(request map[string]interface{}, 
 
 	toolName, ok := params["name"].(string)
 	if !ok {
+		logger.Tools.Warn().
+			Str("session_id", session.ID).
+			Msg("Missing tool name in params")
 		return map[string]interface{}{
 			"jsonrpc": "2.0",
 			"id":      id,
@@ -180,9 +209,20 @@ func (h *FiberMCPHandler) handleToolCallRequest(request map[string]interface{}, 
 		}
 	}
 
+	logger.Tools.Info().
+		Str("session_id", session.ID).
+		Str("tool_name", toolName).
+		Msg("Executing tool")
+
 	if toolName == "get_system_info" {
 		sysInfo, err := sysinfo.Get()
 		if err != nil {
+			logger.Tools.Error().
+				Err(err).
+				Str("session_id", session.ID).
+				Str("tool_name", toolName).
+				Msg("Error getting system information")
+
 			return map[string]interface{}{
 				"jsonrpc": "2.0",
 				"id":      id,
@@ -192,6 +232,13 @@ func (h *FiberMCPHandler) handleToolCallRequest(request map[string]interface{}, 
 				},
 			}
 		}
+
+		logger.Tools.Debug().
+			Str("session_id", session.ID).
+			Str("tool_name", toolName).
+			Interface("cpu_count", sysInfo.CPU.Count).
+			Float64("memory_total_gb", float64(sysInfo.Memory.Total)/(1024*1024*1024)).
+			Msg("System information retrieved successfully")
 
 		return map[string]interface{}{
 			"jsonrpc": "2.0",
@@ -210,10 +257,14 @@ func (h *FiberMCPHandler) handleToolCallRequest(request map[string]interface{}, 
 							sysInfo.Memory.UsedPercent),
 					},
 				},
-				"isError": false,
 			},
 		}
 	}
+
+	logger.Tools.Warn().
+		Str("session_id", session.ID).
+		Str("tool_name", toolName).
+		Msg("Unknown tool requested")
 
 	return map[string]interface{}{
 		"jsonrpc": "2.0",

@@ -2,11 +2,12 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"strconv"
 
 	"mcp-system-info/internal/handlers"
+	"mcp-system-info/internal/logger"
+	"mcp-system-info/internal/middleware"
 	"mcp-system-info/internal/types"
 
 	"github.com/gofiber/fiber/v2"
@@ -16,6 +17,9 @@ import (
 )
 
 func main() {
+	// Инициализируем логгер в самом начале
+	logger.InitLogger()
+
 	systemInfoTool := mcp.NewTool("get_system_info",
 		mcp.WithDescription("Gets system information: CPU and memory"),
 		mcp.WithString("random_string",
@@ -30,7 +34,9 @@ func main() {
 	if port := os.Getenv("PORT"); port != "" {
 		portInt, err := strconv.Atoi(port)
 		if err != nil || portInt <= 0 {
-			log.Fatal("Invalid PORT value")
+			logger.Main.Fatal().
+				Str("port", port).
+				Msg("Invalid PORT value")
 		}
 
 		// Создаем Fiber приложение
@@ -38,6 +44,9 @@ func main() {
 			DisableStartupMessage: false,
 			AppName:               "MCP System Info Server",
 		})
+
+		// Добавляем middleware для логгирования HTTP запросов
+		app.Use(middleware.LoggingMiddleware())
 
 		// Добавляем CORS middleware
 		app.Use(cors.New(cors.Config{
@@ -55,14 +64,23 @@ func main() {
 		mcpHandler.RegisterRoutes(app)
 
 		addr := fmt.Sprintf(":%d", portInt)
-		log.Printf("Starting Fiber server on port %s", port)
+		logger.Main.Info().
+			Str("port", port).
+			Str("addr", addr).
+			Msg("Starting Fiber server")
 
 		if err = app.Listen(addr); err != nil {
-			log.Fatalf("Error starting Fiber server: %v", err)
+			logger.Main.Fatal().
+				Err(err).
+				Str("addr", addr).
+				Msg("Error starting Fiber server")
 		}
 	} else {
+		logger.Main.Info().Msg("Starting MCP server in stdio mode")
 		if err := server.ServeStdio(mcpServer); err != nil {
-			log.Fatalf("Error starting MCP server in stdio mode: %v", err)
+			logger.Main.Fatal().
+				Err(err).
+				Msg("Error starting MCP server in stdio mode")
 		}
 	}
 }

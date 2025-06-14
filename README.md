@@ -10,10 +10,81 @@ Model Context Protocol (MCP) сервер для получения систем
 
 - Получение информации о CPU (количество ядер, модель, загрузка)
 - Получение информации о памяти (общая, доступная, используемая)
+- Структурированное логгирование с помощью zerolog
 - Поддержка двух режимов работы:
   - **stdio** - для интеграции с Cursor в режиме stdio и другими локальными MCP клиентами
   - **Streamable HTTP** - новый протокол согласно спецификации 2025-03-26 на корневом маршруте `/`
   - **Legacy HTTP/SSE** - для обратной совместимости на маршруте `/sse`
+
+## Конфигурация логгирования
+
+Сервер использует структурированное логгирование с помощью [zerolog](https://github.com/rs/zerolog) с поддержкой следующих переменных окружения:
+
+### Переменные окружения
+
+- **`LOG_LEVEL`** - уровень логгирования: `trace`, `debug`, `info`, `warn`, `error`, `fatal`, `panic`, `disabled` (по умолчанию: `info`)
+- **`ENVIRONMENT`** или **`ENV`** - режим окружения: `development`/`dev` или `production`/`prod` (по умолчанию: `development`)
+
+### Режимы логгирования
+
+#### Режим разработки (development)
+
+```bash
+ENVIRONMENT=development LOG_LEVEL=debug ./system-info-server
+```
+
+- Красивый цветной вывод в консоль
+- Читаемые временные метки (HH:MM:SS)
+- Подробная информация о файлах и строках кода
+
+#### Режим продакшена (production)
+
+```bash
+ENVIRONMENT=production LOG_LEVEL=info ./system-info-server
+```
+
+- JSON формат для парсинга логами агрегаторами
+- RFC3339 временные метки
+- Оптимизирован для производительности
+
+### Примеры конфигурации
+
+```bash
+# Минимальное логгирование для продакшена
+ENVIRONMENT=production LOG_LEVEL=error PORT=8080 ./system-info-server
+
+# Максимальная детализация для отладки
+ENVIRONMENT=development LOG_LEVEL=trace ./system-info-server
+
+# Стандартная конфигурация для разработки
+LOG_LEVEL=debug ./system-info-server
+```
+
+### Структура логов
+
+Каждое логируемое событие содержит контекстные поля:
+
+- **`component`** - компонент системы (main, http, session, mcp, tools, sysinfo, sse, streamable)
+- **`session_id`** - идентификатор сессии для отслеживания запросов
+- **`method`** - HTTP метод или RPC метод
+- **`duration`** - время выполнения операций
+- **`status`** - HTTP статус код
+- **`error`** - детали ошибок с контекстом
+
+Пример лога в режиме разработки:
+
+```
+14:30:25 INF Starting Fiber server component=main port=8080 addr=:8080
+14:30:30 INF Request started component=http method=POST path=/ session_id=session_20240614_143030_abc12345
+14:30:30 DBG Processing JSON-RPC request component=mcp method=initialize session_id=session_20240614_143030_abc12345
+```
+
+Пример лога в JSON формате (продакшен):
+
+```json
+{"level":"info","time":"2024-06-14T14:30:25+03:00","caller":"main.go:65","component":"main","port":"8080","addr":":8080","message":"Starting Fiber server"}
+{"level":"info","time":"2024-06-14T14:30:30+03:00","caller":"middleware/logging.go:35","component":"http","method":"POST","path":"/","session_id":"session_20240614_143030_abc12345","message":"Request started"}
+```
 
 ## Установка и запуск
 

@@ -3,6 +3,8 @@ package types
 import (
 	"sync"
 	"time"
+
+	"mcp-system-info/internal/logger"
 )
 
 // Session представляет сессию MCP
@@ -25,6 +27,10 @@ type StoredEvent struct {
 
 // NewSession создает новую сессию
 func NewSession(id string) *Session {
+	logger.Session.Debug().
+		Str("session_id", id).
+		Msg("Creating new session")
+
 	return &Session{
 		ID:           id,
 		CreatedAt:    time.Now(),
@@ -38,7 +44,16 @@ func NewSession(id string) *Session {
 func (s *Session) UpdateActivity() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	oldActivity := s.LastActivity
 	s.LastActivity = time.Now()
+
+	if time.Since(oldActivity) > 5*time.Minute {
+		logger.Session.Debug().
+			Str("session_id", s.ID).
+			Time("last_activity", oldActivity).
+			Msg("Session activity updated after long period")
+	}
 }
 
 // StoreEvent сохраняет событие и возвращает уникальный ID
@@ -56,8 +71,21 @@ func (s *Session) StoreEvent(data interface{}) int64 {
 
 	// Ограничиваем количество сохраненных событий
 	if len(s.storedEvents) > s.maxEvents {
-		s.storedEvents = s.storedEvents[len(s.storedEvents)-s.maxEvents:]
+		removed := len(s.storedEvents) - s.maxEvents
+		s.storedEvents = s.storedEvents[removed:]
+
+		logger.Session.Debug().
+			Str("session_id", s.ID).
+			Int("removed_events", removed).
+			Int("current_events", len(s.storedEvents)).
+			Msg("Cleaned up old events")
 	}
+
+	logger.Session.Trace().
+		Str("session_id", s.ID).
+		Int64("event_id", s.eventCounter).
+		Int("total_events", len(s.storedEvents)).
+		Msg("Event stored")
 
 	return s.eventCounter
 }
@@ -73,6 +101,15 @@ func (s *Session) GetEventsAfter(lastEventID int64) []StoredEvent {
 			result = append(result, event)
 		}
 	}
+
+	if len(result) > 0 {
+		logger.Session.Debug().
+			Str("session_id", s.ID).
+			Int64("last_event_id", lastEventID).
+			Int("events_found", len(result)).
+			Msg("Retrieved events after ID")
+	}
+
 	return result
 }
 
@@ -85,6 +122,14 @@ func (s *Session) GetCurrentEventID() int64 {
 
 // Close закрывает сессию
 func (s *Session) Close() {
+	logger.Session.Info().
+		Str("session_id", s.ID).
+		Time("created_at", s.CreatedAt).
+		Time("last_activity", s.LastActivity).
+		Int("stored_events", len(s.storedEvents)).
+		Dur("session_duration", time.Since(s.CreatedAt)).
+		Msg("Closing session")
+
 	close(s.SSEChan)
 }
 
@@ -96,6 +141,8 @@ type SessionManager struct {
 
 // NewSessionManager создает новый менеджер сессий
 func NewSessionManager() *SessionManager {
+	logger.Session.Info().Msg("Creating new session manager")
+
 	return &SessionManager{
 		sessions: make(map[string]*Session),
 	}
@@ -110,6 +157,11 @@ func (sm *SessionManager) CreateSession() string {
 	session := NewSession(sessionID)
 	sm.sessions[sessionID] = session
 
+	logger.Session.Info().
+		Str("session_id", sessionID).
+		Int("total_sessions", len(sm.sessions)).
+		Msg("Session created")
+
 	return sessionID
 }
 
@@ -121,6 +173,13 @@ func (sm *SessionManager) GetSession(sessionID string) (*Session, bool) {
 	session, exists := sm.sessions[sessionID]
 	if exists {
 		session.UpdateActivity()
+		logger.Session.Trace().
+			Str("session_id", sessionID).
+			Msg("Session accessed")
+	} else {
+		logger.Session.Warn().
+			Str("session_id", sessionID).
+			Msg("Session not found")
 	}
 	return session, exists
 }
@@ -133,6 +192,15 @@ func (sm *SessionManager) RemoveSession(sessionID string) {
 	if session, exists := sm.sessions[sessionID]; exists {
 		session.Close()
 		delete(sm.sessions, sessionID)
+
+		logger.Session.Info().
+			Str("session_id", sessionID).
+			Int("remaining_sessions", len(sm.sessions)).
+			Msg("Session removed")
+	} else {
+		logger.Session.Warn().
+			Str("session_id", sessionID).
+			Msg("Attempted to remove non-existent session")
 	}
 }
 
@@ -142,11 +210,22 @@ func (sm *SessionManager) CleanupExpiredSessions(maxAge time.Duration) {
 	defer sm.mu.Unlock()
 
 	now := time.Now()
+	var expiredCount int
+
 	for sessionID, session := range sm.sessions {
 		if now.Sub(session.LastActivity) > maxAge {
 			session.Close()
 			delete(sm.sessions, sessionID)
+			expiredCount++
 		}
+	}
+
+	if expiredCount > 0 {
+		logger.Session.Info().
+			Int("expired_sessions", expiredCount).
+			Int("remaining_sessions", len(sm.sessions)).
+			Dur("max_age", maxAge).
+			Msg("Cleaned up expired sessions")
 	}
 }
 
