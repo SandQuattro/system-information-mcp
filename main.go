@@ -88,7 +88,7 @@ func (h *MCPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == "/" && r.Method == http.MethodGet && r.Header.Get("Accept") != "text/event-stream" {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"ok","message":"MCP System Info Server работает","version":"1.0.0"}`))
+		w.Write([]byte(`{"status":"ok","message":"MCP System Info Server is running","version":"1.0.0"}`))
 		return
 	}
 
@@ -115,20 +115,20 @@ func (h *MCPHandler) handleMCPPost(w http.ResponseWriter, r *http.Request) {
 
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		log.Printf("[MCP POST] Ошибка чтения тела запроса: %v", err)
+		log.Printf("[MCP POST] Error reading request body: %v", err)
 		http.Error(w, "Bad Request", http.StatusBadRequest)
 		return
 	}
 	defer r.Body.Close()
 
-	log.Printf("[MCP POST] Получен запрос: %s", string(body))
+	log.Printf("[MCP POST] Received request: %s", string(body))
 
 	var messages []map[string]interface{}
 
 	if err := json.Unmarshal(body, &messages); err != nil {
 		var singleMessage map[string]interface{}
 		if err := json.Unmarshal(body, &singleMessage); err != nil {
-			log.Printf("[MCP POST] Ошибка парсинга JSON: %v", err)
+			log.Printf("[MCP POST] JSON parsing error: %v", err)
 			http.Error(w, "Invalid JSON", http.StatusBadRequest)
 			return
 		}
@@ -197,7 +197,7 @@ func (h *MCPHandler) handleMCPGet(w http.ResponseWriter, r *http.Request) {
 func (h *MCPHandler) handleMCPDelete(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.Header.Get("Mcp-Session-Id")
 	if sessionID != "" {
-		log.Printf("[MCP DELETE] Удаляем сессию: %s", sessionID)
+		log.Printf("[MCP DELETE] Removing session: %s", sessionID)
 		h.sessionManager.RemoveSession(sessionID)
 	}
 
@@ -207,7 +207,7 @@ func (h *MCPHandler) handleMCPDelete(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *MCPHandler) handleJSONRPCMessage(request map[string]interface{}, sessionID string) map[string]interface{} {
-	log.Printf("[JSON-RPC] Получен запрос: %v", request)
+	log.Printf("[JSON-RPC] Received request: %v", request)
 
 	method, hasMethod := request["method"].(string)
 	id, hasID := request["id"]
@@ -267,7 +267,7 @@ func (h *MCPHandler) handleInitializeRequest(request map[string]interface{}) map
 	id := request["id"]
 
 	sessionID := h.sessionManager.CreateSession()
-	log.Printf("[INITIALIZE] Создана новая сессия: %s", sessionID)
+	log.Printf("[INITIALIZE] Created new session: %s", sessionID)
 
 	h.lastCreatedSessionID.Store("sessionID", sessionID)
 
@@ -297,7 +297,7 @@ func (h *MCPHandler) handleToolsListRequest(request map[string]interface{}, sess
 			"tools": []map[string]interface{}{
 				{
 					"name":        "get_system_info",
-					"description": "Получает информацию о системе: CPU и память",
+					"description": "Gets system information: CPU and memory",
 					"inputSchema": map[string]interface{}{
 						"type": "object",
 						"properties": map[string]interface{}{
@@ -348,7 +348,7 @@ func (h *MCPHandler) handleToolCallRequest(request map[string]interface{}, sessi
 				"id":      id,
 				"error": map[string]interface{}{
 					"code":    -32603,
-					"message": fmt.Sprintf("Ошибка получения информации о системе: %v", err),
+					"message": fmt.Sprintf("Error getting system information: %v", err),
 				},
 			}
 		}
@@ -360,7 +360,7 @@ func (h *MCPHandler) handleToolCallRequest(request map[string]interface{}, sessi
 				"content": []map[string]interface{}{
 					{
 						"type": "text",
-						"text": fmt.Sprintf("Системная информация:\n\nCPU:\n- Количество ядер: %d\n- Модель: %s\n- Загрузка: %.2f%%\n\nПамять:\n- Общая: %.2f GB\n- Доступная: %.2f GB\n- Используемая: %.2f GB (%.2f%%)",
+						"text": fmt.Sprintf("System Information:\n\nCPU:\n- Core count: %d\n- Model: %s\n- Usage: %.2f%%\n\nMemory:\n- Total: %.2f GB\n- Available: %.2f GB\n- Used: %.2f GB (%.2f%%)",
 							sysInfo.CPU.Count,
 							sysInfo.CPU.ModelName,
 							sysInfo.CPU.UsagePercent,
@@ -395,7 +395,7 @@ func (h *MCPHandler) handleSSE(w http.ResponseWriter, r *http.Request) {
 	if sessionID == "" {
 		sessionID = h.sessionManager.CreateSession()
 		autoCreatedSession = true
-		log.Printf("[SSE] Создана новая сессия: %s", sessionID)
+		log.Printf("[SSE] Created new session: %s", sessionID)
 	}
 
 	w.Header().Set("Mcp-Session-Id", sessionID)
@@ -423,7 +423,7 @@ func (h *MCPHandler) handleSSE(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		select {
 		case <-r.Context().Done():
-			log.Printf("[SSE] Клиент отключился, сессия: %s", sessionID)
+			log.Printf("[SSE] Client disconnected, session: %s", sessionID)
 			if autoCreatedSession {
 				h.sessionManager.RemoveSession(sessionID)
 			}
@@ -468,7 +468,7 @@ func (h *MCPHandler) handleSSEWithBackwardCompatibility(w http.ResponseWriter, r
 	if sessionID == "" {
 		sessionID = h.sessionManager.CreateSession()
 		autoCreatedSession = true
-		log.Printf("[SSE] Создана новая сессия для старого клиента: %s", sessionID)
+		log.Printf("[SSE] Created new session for legacy client: %s", sessionID)
 	}
 
 	w.Header().Set("Mcp-Session-Id", sessionID)
@@ -508,7 +508,7 @@ func (h *MCPHandler) handleSSEWithBackwardCompatibility(w http.ResponseWriter, r
 	go func() {
 		select {
 		case <-r.Context().Done():
-			log.Printf("[SSE] Клиент отключился (старый протокол), сессия: %s", sessionID)
+			log.Printf("[SSE] Client disconnected (legacy protocol), session: %s", sessionID)
 			if autoCreatedSession {
 				h.sessionManager.RemoveSession(sessionID)
 			}
@@ -559,7 +559,7 @@ func (h *MCPHandler) sendSSEMessage(sessionID string, message interface{}) error
 
 func main() {
 	systemInfoTool := mcp.NewTool("get_system_info",
-		mcp.WithDescription("Получает информацию о системе: CPU и память"),
+		mcp.WithDescription("Gets system information: CPU and memory"),
 		mcp.WithString("random_string",
 			mcp.Required(),
 			mcp.Description("Dummy parameter for no-parameter tools"),
@@ -572,7 +572,7 @@ func main() {
 	if port := os.Getenv("PORT"); port != "" {
 		portInt, err := strconv.Atoi(port)
 		if err != nil || portInt <= 0 {
-			log.Fatal("Неверное значение PORT")
+			log.Fatal("Invalid PORT value")
 		}
 
 		sessionManager := NewSessionManager()
@@ -583,15 +583,15 @@ func main() {
 		}
 
 		addr := fmt.Sprintf(":%d", portInt)
-		log.Printf("Запуск HTTP сервера на порту %s", port)
-		log.Printf("SSE доступен по адресу http://localhost%s/sse", addr)
+		log.Printf("Starting HTTP server on port %s", port)
+		log.Printf("SSE available at http://localhost%s/sse", addr)
 
 		if err := http.ListenAndServe(addr, handler); err != nil {
-			log.Fatalf("Ошибка запуска HTTP сервера: %v", err)
+			log.Fatalf("Error starting HTTP server: %v", err)
 		}
 	} else {
 		if err := server.ServeStdio(mcpServer); err != nil {
-			log.Fatalf("Ошибка запуска MCP сервера в stdio режиме: %v", err)
+			log.Fatalf("Error starting MCP server in stdio mode: %v", err)
 		}
 	}
 }
@@ -599,10 +599,10 @@ func main() {
 func getSystemInfoHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	sysInfo, err := sysinfo.Get()
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Ошибка получения информации о системе: %v", err)), nil
+		return mcp.NewToolResultError(fmt.Sprintf("Error getting system information: %v", err)), nil
 	}
 
-	content := fmt.Sprintf("Системная информация:\n\nCPU:\n- Количество ядер: %d\n- Модель: %s\n- Загрузка: %.2f%%\n\nПамять:\n- Общая: %.2f GB\n- Доступная: %.2f GB\n- Используемая: %.2f GB (%.2f%%)",
+	content := fmt.Sprintf("System Information:\n\nCPU:\n- Core count: %d\n- Model: %s\n- Usage: %.2f%%\n\nMemory:\n- Total: %.2f GB\n- Available: %.2f GB\n- Used: %.2f GB (%.2f%%)",
 		sysInfo.CPU.Count,
 		sysInfo.CPU.ModelName,
 		sysInfo.CPU.UsagePercent,

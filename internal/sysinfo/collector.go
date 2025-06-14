@@ -13,7 +13,7 @@ func Get() (*SystemInfo, error) {
 
 	cpuInfo, err := cpu.Info()
 	if err != nil {
-		return nil, fmt.Errorf("не удалось получить информацию о CPU: %v", err)
+		return nil, fmt.Errorf("failed to get CPU information: %v", err)
 	}
 
 	var modelName string
@@ -23,7 +23,7 @@ func Get() (*SystemInfo, error) {
 
 	cpuPercent, err := cpu.Percent(0, false)
 	if err != nil {
-		return nil, fmt.Errorf("не удалось получить загрузку CPU: %v", err)
+		return nil, fmt.Errorf("failed to get CPU usage: %v", err)
 	}
 
 	var usagePercent float64
@@ -33,7 +33,7 @@ func Get() (*SystemInfo, error) {
 
 	memInfo, err := mem.VirtualMemory()
 	if err != nil {
-		return nil, fmt.Errorf("не удалось получить информацию о памяти: %v", err)
+		return nil, fmt.Errorf("failed to get memory information: %v", err)
 	}
 
 	return &SystemInfo{
