@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"encoding/json"
 	"strings"
 	"time"
 
@@ -153,14 +154,44 @@ func RequestLoggingMiddleware() fiber.Handler {
 		acceptHeader := c.Get("Accept")
 		contentType := c.Get("Content-Type")
 
-		// Определяем тип клиента по User-Agent
+		// Определяем тип клиента по User-Agent и дополнительным признакам
 		var clientType string
+		var detectedClientName string
+		var detectedClientVersion string
+
+		// Анализируем JSON payload для более точной идентификации клиентов
+		if c.Method() == "POST" && strings.Contains(contentType, "application/json") {
+			body := c.Body()
+			if len(body) > 0 {
+				var jsonData map[string]interface{}
+				if err := json.Unmarshal(body, &jsonData); err == nil {
+					// Проверяем clientInfo в params для initialize запросов
+					if params, ok := jsonData["params"].(map[string]interface{}); ok {
+						if clientInfo, ok := params["clientInfo"].(map[string]interface{}); ok {
+							if name, ok := clientInfo["name"].(string); ok {
+								detectedClientName = name
+								if version, ok := clientInfo["version"].(string); ok {
+									detectedClientVersion = version
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+
+		// Определяем тип клиента с учетом JSON payload
 		switch {
+		case strings.Contains(detectedClientName, "cursor"):
+			clientType = "cursor"
 		case strings.Contains(userAgent, "cursor"):
 			clientType = "cursor"
+		case strings.Contains(userAgent, "node") && detectedClientName == "":
+			// node User-Agent без clientInfo обычно означает n8n
+			clientType = "n8n"
 		case strings.Contains(userAgent, "n8n"):
 			clientType = "n8n"
-		case strings.Contains(userAgent, "McpClient"):
+		case strings.Contains(detectedClientName, "McpClient") || strings.Contains(userAgent, "McpClient"):
 			clientType = "mcp-client"
 		case strings.Contains(userAgent, "curl"):
 			clientType = "curl"
@@ -190,6 +221,12 @@ func RequestLoggingMiddleware() fiber.Handler {
 		}
 		if clientVersion != "" {
 			httpLogger = httpLogger.With().Str("client_version", clientVersion).Logger()
+		}
+		if detectedClientName != "" {
+			httpLogger = httpLogger.With().Str("detected_client_name", detectedClientName).Logger()
+		}
+		if detectedClientVersion != "" {
+			httpLogger = httpLogger.With().Str("detected_client_version", detectedClientVersion).Logger()
 		}
 		if acceptHeader != "" {
 			httpLogger = httpLogger.With().Str("accept", acceptHeader).Logger()
