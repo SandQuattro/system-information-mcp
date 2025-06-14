@@ -267,17 +267,38 @@ func (h *FiberMCPHandler) handleLegacyPost(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).SendString("Invalid JSON")
 	}
 
-	response := h.handleJSONRPCMessage(request, "")
+	// Получаем sessionID из заголовка или создаем новый для initialize
+	sessionID := c.Get("Mcp-Session-Id")
+	method, _ := request["method"].(string)
+
+	// Для initialize запроса sessionID не нужен, для остальных - обязателен
+	if method != "initialize" && method != "notifications/initialized" {
+		if sessionID == "" {
+			log.Printf("[Legacy POST] Missing session ID for method: %s", method)
+			return c.Status(fiber.StatusBadRequest).JSON(map[string]interface{}{
+				"jsonrpc": "2.0",
+				"id":      request["id"],
+				"error": map[string]interface{}{
+					"code":    -32001,
+					"message": "Missing Mcp-Session-Id header",
+				},
+			})
+		}
+	}
+
+	response := h.handleJSONRPCMessage(request, sessionID)
 
 	if response != nil {
-		// Для initialize запроса добавляем Session ID в ответ
-		if method, ok := request["method"].(string); ok && method == "initialize" {
+		// Для initialize запроса добавляем Session ID в ответ и заголовок
+		if method == "initialize" {
 			if response["result"] != nil {
 				if value, ok := h.lastCreatedSessionID.Load("sessionID"); ok {
-					if sessionID, ok := value.(string); ok {
+					if newSessionID, ok := value.(string); ok {
 						if result, ok := response["result"].(map[string]interface{}); ok {
-							result["sessionId"] = sessionID
+							result["sessionId"] = newSessionID
 						}
+						// Устанавливаем заголовок для последующих запросов
+						c.Set("Mcp-Session-Id", newSessionID)
 						h.lastCreatedSessionID.Delete("sessionID")
 					}
 				}
