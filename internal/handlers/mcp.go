@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"fmt"
 	"sync"
 
@@ -8,9 +9,11 @@ import (
 	"mcp-system-info/internal/sse"
 	"mcp-system-info/internal/streamable"
 	"mcp-system-info/internal/sysinfo"
+	"mcp-system-info/internal/tools"
 	"mcp-system-info/internal/types"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 )
 
@@ -173,6 +176,7 @@ func (h *FiberMCPHandler) handleToolsListRequest(request map[string]interface{},
 		Str("session_id", session.ID).
 		Msg("Listing available tools")
 
+	// Возвращаем список всех зарегистрированных инструментов
 	return map[string]interface{}{
 		"jsonrpc": "2.0",
 		"id":      id,
@@ -190,6 +194,24 @@ func (h *FiberMCPHandler) handleToolsListRequest(request map[string]interface{},
 							},
 						},
 						"required": []string{"random_string"},
+					},
+				},
+				{
+					"name":        "system_monitor_stream",
+					"description": "Streams real-time system information: CPU and memory monitoring",
+					"inputSchema": map[string]interface{}{
+						"type": "object",
+						"properties": map[string]interface{}{
+							"duration": map[string]interface{}{
+								"type":        "string",
+								"description": "Monitoring duration (e.g., '30s', '5m')",
+							},
+							"interval": map[string]interface{}{
+								"type":        "string",
+								"description": "Update interval (e.g., '1s', '2s')",
+							},
+						},
+						"required": []string{},
 					},
 				},
 			},
@@ -270,6 +292,54 @@ func (h *FiberMCPHandler) handleToolCallRequest(request map[string]interface{}, 
 						"text": sysInfo.FormatText(),
 					},
 				},
+			},
+		}
+	}
+
+	if toolName == "system_monitor_stream" {
+		// Создаем стандартный MCP запрос для вызова инструмента через основной сервер
+		arguments := make(map[string]interface{})
+		if args, ok := params["arguments"].(map[string]interface{}); ok {
+			arguments = args
+		}
+
+		// Создаем CallToolRequest напрямую для вызова зарегистрированного обработчика
+		toolRequest := mcp.CallToolRequest{
+			Params: mcp.CallToolParams{
+				Name:      toolName,
+				Arguments: arguments,
+			},
+		}
+
+		// Вызываем обработчик напрямую
+		result, err := tools.SystemMonitorStreamHandler(context.Background(), toolRequest)
+		if err != nil {
+			logger.Tools.Error().
+				Err(err).
+				Str("session_id", session.ID).
+				Str("tool_name", toolName).
+				Msg("Error executing system monitor stream")
+
+			return map[string]interface{}{
+				"jsonrpc": "2.0",
+				"id":      id,
+				"error": map[string]interface{}{
+					"code":    -32603,
+					"message": fmt.Sprintf("Error executing system monitor stream: %v", err),
+				},
+			}
+		}
+
+		logger.Tools.Debug().
+			Str("session_id", session.ID).
+			Str("tool_name", toolName).
+			Msg("System monitor stream executed successfully")
+
+		return map[string]interface{}{
+			"jsonrpc": "2.0",
+			"id":      id,
+			"result": map[string]interface{}{
+				"content": result.Content,
 			},
 		}
 	}

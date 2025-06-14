@@ -8,6 +8,7 @@ import (
 	"mcp-system-info/internal/handlers"
 	"mcp-system-info/internal/logger"
 	"mcp-system-info/internal/middleware"
+	"mcp-system-info/internal/tools"
 	"mcp-system-info/internal/types"
 
 	"github.com/gofiber/fiber/v2"
@@ -39,8 +40,14 @@ func main() {
 	)
 
 	mcpServer := server.NewMCPServer("mcp-system-info", "1.0.0")
-	mcpServer.AddTool(systemInfoTool, handlers.GetSystemInfoHandler)
-	mcpServer.AddTool(systemMonitorStreamTool, handlers.SystemMonitorStreamHandler)
+	mcpServer.AddTool(systemInfoTool, tools.GetSystemInfoHandler)
+	mcpServer.AddTool(systemMonitorStreamTool, tools.SystemMonitorStreamHandler)
+
+	// Добавляем отладочную информацию
+	logger.Main.Info().
+		Str("tool1", "get_system_info").
+		Str("tool2", "system_monitor_stream").
+		Msg("Registered MCP tools")
 
 	if port := os.Getenv("PORT"); port != "" {
 		portInt, err := strconv.Atoi(port)
