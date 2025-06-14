@@ -32,8 +32,13 @@ RUN echo "=== GO ENVIRONMENT ===" && \
     echo "=== GO MOD STATUS ===" && \
     go mod verify
 
-# Собираем приложение с принудительным включением modules и очисткой GOPATH
-RUN GO111MODULE=on GOPATH="" CGO_ENABLED=0 GOOS=linux go build -a -mod=mod -installsuffix cgo -o system-info-server .
+# Очищаем кеш и пересобираем зависимости для устранения конфликтов
+RUN go clean -cache -modcache -testcache && \
+    go mod download && \
+    go mod verify
+
+# Собираем приложение с принудительным включением modules без флага -a
+RUN GO111MODULE=on GOPATH="" CGO_ENABLED=0 GOOS=linux go build -mod=mod -installsuffix cgo -o system-info-server .
 RUN chmod +x system-info-server
 
 # Финальная стадия
