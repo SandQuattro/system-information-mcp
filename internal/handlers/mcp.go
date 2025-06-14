@@ -99,12 +99,17 @@ func (h *FiberMCPHandler) handleStreamableHTTPPost(c *fiber.Ctx) error {
 			if _, hasMethod := msg["method"]; hasMethod {
 				response := h.handleJSONRPCMessage(msg, sessionID)
 				if response != nil {
-					// Для initialize запроса добавляем Session ID в заголовок
+					// Для initialize запроса добавляем Session ID в заголовок И в JSON response
 					if method, ok := msg["method"].(string); ok && method == "initialize" {
 						if response["result"] != nil {
 							if value, ok := h.lastCreatedSessionID.Load("sessionID"); ok {
 								if newSessionID, ok := value.(string); ok {
+									// Устанавливаем заголовок для HTTP
 									c.Set("Mcp-Session-Id", newSessionID)
+									// Добавляем sessionId в JSON response для клиента
+									if result, ok := response["result"].(map[string]interface{}); ok {
+										result["sessionId"] = newSessionID
+									}
 									h.lastCreatedSessionID.Delete("sessionID")
 								}
 							}
@@ -174,6 +179,11 @@ func (h *FiberMCPHandler) handleStreamableHTTPSSE(c *fiber.Ctx, initialResponses
 	sessionID := c.Get("Mcp-Session-Id")
 	lastEventID := c.Get("Last-Event-Id")
 
+	// Также проверяем стандартный заголовок Last-Event-ID
+	if lastEventID == "" {
+		lastEventID = c.Get("Last-Event-ID")
+	}
+
 	log.Printf("[Streamable HTTP SSE] Session: %s, Last-Event-Id: %s", sessionID, lastEventID)
 
 	// Если нет Session ID, создаем новый как fallback
@@ -197,10 +207,13 @@ func (h *FiberMCPHandler) handleStreamableHTTPSSE(c *fiber.Ctx, initialResponses
 	c.Set("X-Accel-Buffering", "no")
 
 	c.Context().SetBodyStreamWriter(func(w *bufio.Writer) {
+		eventCounter := 0
+
 		// Отправляем начальные responses если есть
 		for _, response := range initialResponses {
+			eventCounter++
 			jsonData, _ := json.Marshal(response)
-			fmt.Fprintf(w, "data: %s\n\n", jsonData)
+			fmt.Fprintf(w, "id: %d\ndata: %s\n\n", eventCounter, jsonData)
 			w.Flush()
 		}
 
@@ -239,12 +252,13 @@ func (h *FiberMCPHandler) handleStreamableHTTPSSE(c *fiber.Ctx, initialResponses
 					return
 				}
 
+				eventCounter++
 				jsonData, err := json.Marshal(message)
 				if err != nil {
 					continue
 				}
 
-				fmt.Fprintf(w, "data: %s\n\n", jsonData)
+				fmt.Fprintf(w, "id: %d\ndata: %s\n\n", eventCounter, jsonData)
 				w.Flush()
 			case <-pingTicker.C:
 				fmt.Fprintf(w, ": ping\n\n")
