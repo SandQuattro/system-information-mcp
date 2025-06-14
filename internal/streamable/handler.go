@@ -183,21 +183,15 @@ func (h *Handler) HandlePost(c *fiber.Ctx) error {
 			}
 		}
 
-		// Для других запросов возвращаем в зависимости от Accept header
-		if supportsSSE && len(responses) > 0 {
-			streamLogger.Debug().Msg("Returning SSE stream")
-			// Возвращаем SSE поток - передаем обновленный session ID напрямую
-			return h.HandleSSEWithActualSessionID(c, responses, actualSessionID)
-		} else {
-			streamLogger.Debug().Msg("Returning JSON responses")
-			// Возвращаем JSON
-			c.Set("Content-Type", "application/json")
+		// Для обычных запросов (tools/list, tools/call и т.д.) возвращаем JSON response
+		// SSE поток используется только для уведомлений и длительных операций
+		streamLogger.Debug().Msg("Returning JSON responses for regular requests")
+		c.Set("Content-Type", "application/json")
 
-			if len(responses) == 1 {
-				return c.JSON(responses[0])
-			} else {
-				return c.JSON(responses)
-			}
+		if len(responses) == 1 {
+			return c.JSON(responses[0])
+		} else {
+			return c.JSON(responses)
 		}
 	}
 
