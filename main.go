@@ -233,12 +233,15 @@ func (h *MCPHandler) handleStreamableHTTPGet(w http.ResponseWriter, r *http.Requ
 	acceptHeader := r.Header.Get("Accept")
 	log.Printf("[Streamable HTTP GET] Accept header: %s", acceptHeader)
 
-	if !strings.Contains(acceptHeader, "text/event-stream") {
-		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+	if strings.Contains(acceptHeader, "text/event-stream") {
+		h.handleStreamableHTTPSSE(w, r, nil)
 		return
 	}
 
-	h.handleStreamableHTTPSSE(w, r, nil)
+	// Для обычных GET запросов возвращаем информацию о сервере
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`{"status":"ok","message":"MCP System Info Server is running","version":"1.0.0","protocol":"2025-03-26","endpoints":{"mcp":"/","legacy_sse":"/sse"}}`))
 }
 
 // Streamable HTTP DELETE согласно спецификации 2025-03-26
