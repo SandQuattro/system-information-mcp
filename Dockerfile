@@ -1,11 +1,19 @@
 # Стадия сборки
 FROM golang:1.24.2-alpine AS builder
 
+# Принудительно устанавливаем переменные окружения для Go modules
+ENV GO111MODULE=on
+ENV GOPATH=""
+ENV GOPROXY=https://proxy.golang.org,direct
+
 # Устанавливаем рабочую директорию
 WORKDIR /app
 
 # Копируем go.mod и go.sum для кэширования зависимостей
 COPY go.mod go.sum ./
+
+# Отладочная информация - проверяем что файлы скопировались
+RUN ls -la && cat go.mod
 
 # Загружаем зависимости
 RUN go mod download
@@ -13,8 +21,19 @@ RUN go mod download
 # Копируем исходный код
 COPY . .
 
-# Собираем приложение
-RUN CGO_ENABLED=0 GOOS=linux go build -a -mod=mod -installsuffix cgo -o system-info-server .
+# Отладочная информация - проверяем Go environment и структуру
+RUN echo "=== GO ENVIRONMENT ===" && \
+    go env GO111MODULE && \
+    go env GOMOD && \
+    go env GOPATH && \
+    go env PWD && \
+    echo "=== FILE STRUCTURE ===" && \
+    find . -name "*.go" | head -10 && \
+    echo "=== GO MOD STATUS ===" && \
+    go mod verify
+
+# Собираем приложение с принудительным включением modules и очисткой GOPATH
+RUN GO111MODULE=on GOPATH="" CGO_ENABLED=0 GOOS=linux go build -a -mod=mod -installsuffix cgo -o system-info-server .
 RUN chmod +x system-info-server
 
 # Финальная стадия
