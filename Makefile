@@ -18,11 +18,11 @@ vendor-clean: ## clean vendor directory
 # ---------------------------------- BUILD -------------------------------------
 .PHONY: build
 build: ## build project
-	CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o system-info-server .
+	CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o system-info-server ./cmd/mcp
 
 .PHONY: build-vendor
 build-vendor: vendor ## build project with vendor
-	CGO_ENABLED=0 GOOS=linux go build -mod=vendor -a -installsuffix cgo -o system-info-server .
+	CGO_ENABLED=0 GOOS=linux go build -mod=vendor -a -installsuffix cgo -o system-info-server ./cmd/mcp
 
 # ---------------------------------- DOCKER ------------------------------------
 .PHONY: docker-build

@@ -28,8 +28,19 @@ func main() {
 		),
 	)
 
+	systemMonitorStreamTool := mcp.NewTool("system_monitor_stream",
+		mcp.WithDescription("Streams real-time system information: CPU and memory monitoring"),
+		mcp.WithString("duration",
+			mcp.Description("Monitoring duration (e.g., '30s', '5m')"),
+		),
+		mcp.WithString("interval",
+			mcp.Description("Update interval (e.g., '1s', '2s')"),
+		),
+	)
+
 	mcpServer := server.NewMCPServer("mcp-system-info", "1.0.0")
 	mcpServer.AddTool(systemInfoTool, handlers.GetSystemInfoHandler)
+	mcpServer.AddTool(systemMonitorStreamTool, handlers.SystemMonitorStreamHandler)
 
 	if port := os.Getenv("PORT"); port != "" {
 		portInt, err := strconv.Atoi(port)
