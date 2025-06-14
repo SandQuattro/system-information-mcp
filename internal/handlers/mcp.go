@@ -143,7 +143,18 @@ func (h *FiberMCPHandler) handleStreamableHTTPGet(c *fiber.Ctx) error {
 		return h.handleStreamableHTTPSSE(c, nil)
 	}
 
-	return c.Status(fiber.StatusNotAcceptable).SendString("Not Acceptable")
+	// Для обычных GET запросов возвращаем информацию о сервере
+	return c.JSON(fiber.Map{
+		"status":    "ok",
+		"message":   "MCP System Info Server is running",
+		"version":   "1.0.0",
+		"protocol":  "2025-03-26",
+		"framework": "Fiber v2.52.8",
+		"endpoints": fiber.Map{
+			"mcp":        "/",
+			"legacy_sse": "/sse",
+		},
+	})
 }
 
 // Streamable HTTP DELETE согласно спецификации 2025-03-26
