@@ -166,8 +166,8 @@ func (h *Handler) HandlePost(c *fiber.Ctx) error {
 		// Возвращаем в зависимости от Accept header
 		if supportsSSE && len(responses) > 0 {
 			streamLogger.Debug().Msg("Returning SSE stream")
-			// Возвращаем SSE поток - передаем обновленный session ID
-			return h.HandleSSEWithSessionID(c, responses, actualSessionID)
+			// Возвращаем SSE поток - передаем обновленный session ID напрямую
+			return h.HandleSSEWithActualSessionID(c, responses, actualSessionID)
 		} else {
 			streamLogger.Debug().Msg("Returning JSON responses")
 			// Возвращаем JSON
@@ -184,11 +184,158 @@ func (h *Handler) HandlePost(c *fiber.Ctx) error {
 	return c.SendStatus(fiber.StatusOK)
 }
 
+// HandleSSEWithActualSessionID - обрабатывает SSE поток с переданным session ID
+func (h *Handler) HandleSSEWithActualSessionID(c *fiber.Ctx, initialResponses []map[string]interface{}, actualSessionID string) error {
+	lastEventID := c.Get("Last-Event-Id")
+
+	// Также проверяем стандартный заголовок Last-Event-ID
+	if lastEventID == "" {
+		lastEventID = c.Get("Last-Event-ID")
+	}
+
+	streamLogger := logger.Streamable.With().
+		Str("session_id", actualSessionID).
+		Str("last_event_id", lastEventID).
+		Int("initial_responses", len(initialResponses)).
+		Logger()
+
+	streamLogger.Info().Msg("Starting Streamable HTTP SSE connection with provided session ID")
+
+	session, exists := h.sessionManager.GetSession(actualSessionID)
+	if !exists {
+		streamLogger.Error().Msg("Session not found for Streamable HTTP SSE")
+		return c.Status(fiber.StatusNotFound).SendString("Session not found")
+	}
+
+	// Устанавливаем заголовок response для клиента
+	c.Set("Mcp-Session-Id", actualSessionID)
+
+	// Устанавливаем SSE заголовки
+	c.Set("Content-Type", "text/event-stream")
+	c.Set("Cache-Control", "no-cache")
+	c.Set("Connection", "keep-alive")
+	c.Set("X-Accel-Buffering", "no")
+
+	c.Context().SetBodyStreamWriter(func(w *bufio.Writer) {
+		streamLogger.Debug().Msg("Streamable HTTP SSE stream started")
+
+		// Обработка Resume from Last Event согласно спецификации
+		var startEventID int64 = 0
+		if lastEventID != "" {
+			if parsedID, err := strconv.ParseInt(lastEventID, 10, 64); err == nil {
+				startEventID = parsedID
+				streamLogger.Info().
+					Int64("start_event_id", startEventID).
+					Msg("Resuming from last event ID")
+			} else {
+				streamLogger.Warn().
+					Err(err).
+					Str("last_event_id", lastEventID).
+					Msg("Failed to parse last event ID")
+			}
+		}
+
+		// Message Replay: воспроизводим пропущенные события
+		if startEventID > 0 {
+			missedEvents := session.GetEventsAfter(startEventID)
+			streamLogger.Info().
+				Int("missed_events_count", len(missedEvents)).
+				Msg("Replaying missed events")
+
+			for _, event := range missedEvents {
+				jsonData, _ := json.Marshal(event.Data)
+				fmt.Fprintf(w, "id: %d\ndata: %s\n\n", event.ID, jsonData)
+				w.Flush()
+			}
+		}
+
+		// Отправляем начальные responses если есть
+		if len(initialResponses) > 0 {
+			streamLogger.Debug().
+				Int("initial_responses", len(initialResponses)).
+				Msg("Sending initial responses")
+
+			for _, response := range initialResponses {
+				eventID := session.StoreEvent(response)
+				jsonData, _ := json.Marshal(response)
+				fmt.Fprintf(w, "id: %d\ndata: %s\n\n", eventID, jsonData)
+				w.Flush()
+			}
+		}
+
+		done := make(chan struct{})
+		pingTicker := time.NewTicker(30 * time.Second)
+		defer pingTicker.Stop()
+
+		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					streamLogger.Error().
+						Interface("panic", r).
+						Msg("Recovered from panic in Streamable HTTP SSE goroutine")
+				}
+			}()
+
+			// Используем timeout вместо c.Context().Done() для безопасности
+			timeout := time.NewTimer(5 * time.Minute)
+			defer timeout.Stop()
+
+			select {
+			case <-timeout.C:
+				streamLogger.Info().
+					Dur("timeout", 5*time.Minute).
+					Msg("Streamable HTTP SSE session timeout")
+				close(done)
+			case <-done:
+				return
+			}
+		}()
+
+		// Основной цикл SSE
+		for {
+			select {
+			case <-done:
+				streamLogger.Info().Msg("Streamable HTTP SSE connection closed")
+				return
+			case <-pingTicker.C:
+				// Отправляем ping для поддержания соединения
+				fmt.Fprintf(w, ": ping\n\n")
+				w.Flush()
+			case msg, ok := <-session.SSEChan:
+				if !ok {
+					streamLogger.Info().Msg("SSE channel closed")
+					return
+				}
+
+				eventID := session.StoreEvent(msg)
+				jsonData, err := json.Marshal(msg)
+				if err != nil {
+					streamLogger.Error().
+						Err(err).
+						Interface("message", msg).
+						Msg("Error marshaling SSE message")
+					continue
+				}
+
+				fmt.Fprintf(w, "id: %d\ndata: %s\n\n", eventID, jsonData)
+				w.Flush()
+
+				streamLogger.Trace().
+					Int64("event_id", eventID).
+					Interface("message", msg).
+					Msg("Sent SSE message")
+			}
+		}
+	})
+
+	return nil
+}
+
 // HandleSSEWithSessionID - вспомогательная функция для передачи правильного session ID
 func (h *Handler) HandleSSEWithSessionID(c *fiber.Ctx, initialResponses []map[string]interface{}, actualSessionID string) error {
-	// Если передан actualSessionID, обновляем заголовок
+	// Если передан actualSessionID, используем новый метод
 	if actualSessionID != "" {
-		c.Set("Mcp-Session-Id", actualSessionID)
+		return h.HandleSSEWithActualSessionID(c, initialResponses, actualSessionID)
 	}
 	return h.HandleSSE(c, initialResponses)
 }
