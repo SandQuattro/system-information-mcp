@@ -180,14 +180,17 @@ func RequestLoggingMiddleware() fiber.Handler {
 			}
 		}
 
-		// Определяем тип клиента с учетом JSON payload
+		// Определяем тип клиента с учетом JSON payload и endpoint
 		switch {
 		case strings.Contains(detectedClientName, "cursor"):
 			clientType = "cursor"
 		case strings.Contains(userAgent, "cursor"):
 			clientType = "cursor"
-		case strings.Contains(userAgent, "node") && detectedClientName == "":
-			// node User-Agent без clientInfo обычно означает n8n
+		case c.Path() == "/sse" && strings.Contains(userAgent, "node"):
+			// Legacy SSE endpoint с node User-Agent обычно означает Cursor
+			clientType = "cursor"
+		case c.Path() == "/" && strings.Contains(userAgent, "node") && detectedClientName == "":
+			// Streamable HTTP endpoint с node User-Agent без clientInfo обычно означает n8n
 			clientType = "n8n"
 		case strings.Contains(userAgent, "n8n"):
 			clientType = "n8n"
