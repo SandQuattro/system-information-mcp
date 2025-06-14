@@ -14,7 +14,7 @@ RUN go mod download
 COPY . .
 
 # Собираем приложение
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o system-info-server .
+RUN CGO_ENABLED=0 GOOS=linux go build -a -mod=mod -installsuffix cgo -o system-info-server .
 RUN chmod +x system-info-server
 
 # Финальная стадия
