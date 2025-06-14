@@ -163,7 +163,27 @@ func (h *Handler) HandlePost(c *fiber.Ctx) error {
 			Bool("supports_sse", supportsSSE).
 			Msg("Prepared responses")
 
-		// Возвращаем в зависимости от Accept header
+		// Для initialize запроса всегда возвращаем JSON response
+		hasInitialize := false
+		for _, msg := range messages {
+			if method, ok := msg["method"].(string); ok && method == "initialize" {
+				hasInitialize = true
+				break
+			}
+		}
+
+		if hasInitialize {
+			streamLogger.Debug().Msg("Returning JSON response for initialize")
+			c.Set("Content-Type", "application/json")
+
+			if len(responses) == 1 {
+				return c.JSON(responses[0])
+			} else {
+				return c.JSON(responses)
+			}
+		}
+
+		// Для других запросов возвращаем в зависимости от Accept header
 		if supportsSSE && len(responses) > 0 {
 			streamLogger.Debug().Msg("Returning SSE stream")
 			// Возвращаем SSE поток - передаем обновленный session ID напрямую
