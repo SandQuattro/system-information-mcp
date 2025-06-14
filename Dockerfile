@@ -1,48 +1,20 @@
 # Стадия сборки
 FROM golang:1.24.2-alpine AS builder
 
-# Принудительно устанавливаем переменные окружения для Go modules
-ENV GO111MODULE=on
-ENV GOPATH=""
-ENV GOPROXY=https://proxy.golang.org,direct
-
 # Устанавливаем рабочую директорию
 WORKDIR /app
 
-# Копируем go.mod и go.sum для кэширования зависимостей
+# Копируем go.mod и go.sum для информации о модуле
 COPY go.mod go.sum ./
 
-# Отладочная информация - проверяем что файлы скопировались
-RUN ls -la && cat go.mod
-
-# Загружаем зависимости
-RUN go mod download
+# Копируем vendor директорию с зависимостями
+COPY vendor/ ./vendor/
 
 # Копируем исходный код
 COPY . .
 
-# Отладочная информация - проверяем Go environment и структуру
-RUN echo "=== GO ENVIRONMENT ===" && \
-    go env GO111MODULE && \
-    go env GOMOD && \
-    go env GOPATH && \
-    go env PWD && \
-    echo "=== FILE STRUCTURE ===" && \
-    find . -name "*.go" | head -10 && \
-    echo "=== GO MOD STATUS ===" && \
-    go mod verify
-
-# Очищаем кеш и пересобираем зависимости для устранения конфликтов
-RUN go clean -cache -modcache -testcache && \
-    go mod download && \
-    go mod verify
-
-# Собираем приложение с принудительным включением modules без флага -a
-# RUN GO111MODULE=on GOPATH="" CGO_ENABLED=0 GOOS=linux go build -mod=mod -installsuffix cgo -o system-info-server .
-
-# Альтернативный способ сборки если первый не сработает
-RUN GO111MODULE=on CGO_ENABLED=0 GOOS=linux GOBIN=/app go install -mod=mod . && mv system-info-server system-info-server || echo "Alternative build failed"
-
+# Собираем приложение с использованием vendor
+RUN CGO_ENABLED=0 GOOS=linux go build -mod=vendor -a -installsuffix cgo -o system-info-server .
 RUN chmod +x system-info-server
 
 # Финальная стадия

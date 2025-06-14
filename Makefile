@@ -5,10 +5,37 @@ PATH := $(PROJECT_BIN):$(PATH)
 
 .DEFAULT_GOAL := help
 
+# ---------------------------------- VENDOR ------------------------------------
+.PHONY: vendor
+vendor: ## download and vendor dependencies
+	go mod tidy
+	go mod vendor
+
+.PHONY: vendor-clean
+vendor-clean: ## clean vendor directory
+	rm -rf vendor/
+
 # ---------------------------------- BUILD -------------------------------------
 .PHONY: build
 build: ## build project
 	CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o system-info-server .
+
+.PHONY: build-vendor
+build-vendor: vendor ## build project with vendor
+	CGO_ENABLED=0 GOOS=linux go build -mod=vendor -a -installsuffix cgo -o system-info-server .
+
+# ---------------------------------- DOCKER ------------------------------------
+.PHONY: docker-build
+docker-build: vendor ## build docker image with vendor
+	docker build -t mcp-system-info .
+
+.PHONY: docker-up
+docker-up: ## start docker compose
+	docker-compose up -d
+
+.PHONY: docker-down
+docker-down: ## stop docker compose
+	docker-compose down
 
 # ---------------------------------- LINTING ------------------------------------
 GOLANGCI_LINT = golangci-lint
