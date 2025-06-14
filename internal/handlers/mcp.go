@@ -130,11 +130,31 @@ func (h *FiberMCPHandler) handleInitializeRequest(request map[string]interface{}
 
 	h.lastCreatedSessionID.Store("sessionID", sessionID)
 
+	// Определяем версию протокола по params запроса
+	protocolVersion := "2024-11-05" // Legacy SSE по умолчанию
+	if params, ok := request["params"].(map[string]interface{}); ok {
+		if requestedVersion, ok := params["protocolVersion"].(string); ok {
+			logger.Session.Debug().
+				Str("session_id", sessionID).
+				Str("requested_version", requestedVersion).
+				Msg("Client requested specific protocol version")
+
+			if requestedVersion == "2025-03-26" {
+				protocolVersion = "2025-03-26" // Streamable HTTP
+			}
+		}
+	}
+
+	logger.Session.Info().
+		Str("session_id", sessionID).
+		Str("protocol_version", protocolVersion).
+		Msg("Initialize response prepared")
+
 	return map[string]interface{}{
 		"jsonrpc": "2.0",
 		"id":      id,
 		"result": map[string]interface{}{
-			"protocolVersion": "2024-11-05",
+			"protocolVersion": protocolVersion,
 			"capabilities": map[string]interface{}{
 				"tools": map[string]interface{}{},
 			},

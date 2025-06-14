@@ -113,6 +113,7 @@ func (h *Handler) HandlePost(c *fiber.Ctx) error {
 	// Если есть requests, обрабатываем их
 	if hasRequests {
 		responses := []map[string]interface{}{}
+		actualSessionID := sessionID // Отслеживаем актуальный session ID
 
 		for _, msg := range messages {
 			if _, hasMethod := msg["method"]; hasMethod {
@@ -122,13 +123,16 @@ func (h *Handler) HandlePost(c *fiber.Ctx) error {
 					Str("rpc_method", method).
 					Msg("Processing request")
 
-				response := h.handleJSONRPC(msg, sessionID)
+				response := h.handleJSONRPC(msg, actualSessionID)
 				if response != nil {
 					// Для initialize запроса добавляем Session ID в заголовок И в JSON response
 					if method == "initialize" {
 						if response["result"] != nil {
 							if value, ok := h.lastCreatedSessionID.Load("sessionID"); ok {
 								if newSessionID, ok := value.(string); ok {
+									// Обновляем актуальный session ID
+									actualSessionID = newSessionID
+
 									streamLogger.Info().
 										Str("new_session_id", newSessionID).
 										Msg("Initializing new session for Streamable HTTP")
@@ -140,6 +144,11 @@ func (h *Handler) HandlePost(c *fiber.Ctx) error {
 										result["sessionId"] = newSessionID
 									}
 									h.lastCreatedSessionID.Delete("sessionID")
+
+									// Обновляем логгер с новым session ID
+									streamLogger = streamLogger.With().
+										Str("session_id", newSessionID).
+										Logger()
 								}
 							}
 						}
@@ -157,8 +166,8 @@ func (h *Handler) HandlePost(c *fiber.Ctx) error {
 		// Возвращаем в зависимости от Accept header
 		if supportsSSE && len(responses) > 0 {
 			streamLogger.Debug().Msg("Returning SSE stream")
-			// Возвращаем SSE поток
-			return h.HandleSSE(c, responses)
+			// Возвращаем SSE поток - передаем обновленный session ID
+			return h.HandleSSEWithSessionID(c, responses, actualSessionID)
 		} else {
 			streamLogger.Debug().Msg("Returning JSON responses")
 			// Возвращаем JSON
@@ -173,6 +182,15 @@ func (h *Handler) HandlePost(c *fiber.Ctx) error {
 	}
 
 	return c.SendStatus(fiber.StatusOK)
+}
+
+// HandleSSEWithSessionID - вспомогательная функция для передачи правильного session ID
+func (h *Handler) HandleSSEWithSessionID(c *fiber.Ctx, initialResponses []map[string]interface{}, actualSessionID string) error {
+	// Если передан actualSessionID, обновляем заголовок
+	if actualSessionID != "" {
+		c.Set("Mcp-Session-Id", actualSessionID)
+	}
+	return h.HandleSSE(c, initialResponses)
 }
 
 // HandleGet обрабатывает GET запросы для Streamable HTTP

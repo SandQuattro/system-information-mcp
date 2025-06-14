@@ -177,8 +177,16 @@ func (sm *SessionManager) GetSession(sessionID string) (*Session, bool) {
 			Str("session_id", sessionID).
 			Msg("Session accessed")
 	} else {
+		// Создаем список всех существующих сессий для диагностики
+		var existingSessions []string
+		for sid := range sm.sessions {
+			existingSessions = append(existingSessions, sid)
+		}
+
 		logger.Session.Warn().
 			Str("session_id", sessionID).
+			Strs("existing_sessions", existingSessions).
+			Int("total_sessions", len(sm.sessions)).
 			Msg("Session not found")
 	}
 	return session, exists
