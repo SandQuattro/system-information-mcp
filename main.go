@@ -3,12 +3,13 @@ package main
 import (
 	"fmt"
 	"log"
-	"net/http"
 	"os"
 	"strconv"
 
 	"mcp-system-info/internal/handlers"
 
+	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 )
@@ -31,16 +32,32 @@ func main() {
 			log.Fatal("Invalid PORT value")
 		}
 
-		sessionManager := handlers.NewSessionManager()
+		// Создаем Fiber приложение
+		app := fiber.New(fiber.Config{
+			DisableStartupMessage: false,
+			AppName:               "MCP System Info Server",
+		})
 
-		handler := handlers.NewMCPHandler(mcpServer, sessionManager)
+		// Добавляем CORS middleware
+		app.Use(cors.New(cors.Config{
+			AllowOrigins:     "*",
+			AllowMethods:     "GET,POST,OPTIONS,DELETE",
+			AllowHeaders:     "Content-Type,Mcp-Session-Id,Accept,Last-Event-Id",
+			ExposeHeaders:    "Mcp-Session-Id",
+			AllowCredentials: false,
+		}))
+
+		sessionManager := handlers.NewSessionManager()
+		mcpHandler := handlers.NewFiberMCPHandler(mcpServer, sessionManager)
+
+		// Регистрируем маршруты
+		mcpHandler.RegisterRoutes(app)
 
 		addr := fmt.Sprintf(":%d", portInt)
-		log.Printf("Starting HTTP server on port %s", port)
-		log.Printf("SSE available at http://%s/sse", addr)
+		log.Printf("Starting Fiber server on port %s", port)
 
-		if err = http.ListenAndServe(addr, handler); err != nil {
-			log.Fatalf("Error starting HTTP server: %v", err)
+		if err = app.Listen(addr); err != nil {
+			log.Fatalf("Error starting Fiber server: %v", err)
 		}
 	} else {
 		if err := server.ServeStdio(mcpServer); err != nil {
