@@ -1,6 +1,7 @@
 package types
 
 import (
+	"crypto/rand"
 	"sync"
 	"time"
 
@@ -81,11 +82,14 @@ func (s *Session) StoreEvent(data interface{}) int64 {
 			Msg("Cleaned up old events")
 	}
 
-	logger.Session.Trace().
-		Str("session_id", s.ID).
-		Int64("event_id", s.eventCounter).
-		Int("total_events", len(s.storedEvents)).
-		Msg("Event stored")
+	// Логируем только каждое 10-е событие для снижения нагрузки
+	if s.eventCounter%10 == 0 {
+		logger.Session.Debug().
+			Str("session_id", s.ID).
+			Int64("event_id", s.eventCounter).
+			Int("total_events", len(s.storedEvents)).
+			Msg("Event stored (batch log)")
+	}
 
 	return s.eventCounter
 }
@@ -242,12 +246,22 @@ func generateSessionID() string {
 	return "session_" + time.Now().Format("20060102_150405_") + randomString(8)
 }
 
-// randomString генерирует случайную строку
+// randomString генерирует случайную строку используя crypto/rand
 func randomString(length int) string {
 	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	b := make([]byte, length)
+
+	// Используем crypto/rand для безопасной генерации случайных чисел
+	if _, err := rand.Read(b); err != nil {
+		// Fallback к time-based generation в случае ошибки
+		for i := range b {
+			b[i] = charset[time.Now().UnixNano()%int64(len(charset))]
+		}
+		return string(b)
+	}
+
 	for i := range b {
-		b[i] = charset[time.Now().UnixNano()%int64(len(charset))]
+		b[i] = charset[b[i]%byte(len(charset))]
 	}
 	return string(b)
 }

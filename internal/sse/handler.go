@@ -182,9 +182,14 @@ func (h *Handler) HandleSSE(c *fiber.Ctx) error {
 						Interface("panic", r).
 						Msg("Recovered from panic in Legacy SSE goroutine")
 				}
+				// Гарантируем очистку ресурсов
+				if autoCreatedSession {
+					h.sessionManager.RemoveSession(sessionID)
+				}
+				close(done)
 			}()
 
-			// Используем простой timeout вместо c.Context().Done() для избежания паники
+			// Используем простой timeout с контекстом для лучшего управления ресурсами
 			timeout := time.NewTimer(5 * time.Minute)
 			defer timeout.Stop()
 
@@ -193,12 +198,10 @@ func (h *Handler) HandleSSE(c *fiber.Ctx) error {
 				sseLogger.Info().
 					Dur("timeout", 5*time.Minute).
 					Msg("Legacy SSE session timeout")
-
-				if autoCreatedSession {
-					h.sessionManager.RemoveSession(sessionID)
-				}
-				close(done)
+			case <-c.Context().Done():
+				sseLogger.Info().Msg("Legacy SSE client disconnected")
 			case <-done:
+				return
 			}
 		}()
 
@@ -229,9 +232,12 @@ func (h *Handler) HandleSSE(c *fiber.Ctx) error {
 				w.Flush()
 				messageCount++
 
-				sseLogger.Trace().
-					Int("message_count", messageCount).
-					Msg("Sent Legacy SSE message")
+				// Логируем только каждое 5-е сообщение для снижения нагрузки
+				if messageCount%5 == 0 {
+					sseLogger.Debug().
+						Int("message_count", messageCount).
+						Msg("Sent Legacy SSE messages (batch log)")
+				}
 
 			case <-pingTicker.C:
 				fmt.Fprintf(w, ": ping\n\n")

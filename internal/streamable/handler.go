@@ -288,9 +288,10 @@ func (h *Handler) HandleSSEWithActualSessionID(c *fiber.Ctx, initialResponses []
 						Interface("panic", r).
 						Msg("Recovered from panic in Streamable HTTP SSE goroutine")
 				}
+				close(done)
 			}()
 
-			// Используем timeout вместо c.Context().Done() для безопасности
+			// Используем timeout с контекстом для лучшего управления ресурсами
 			timeout := time.NewTimer(5 * time.Minute)
 			defer timeout.Stop()
 
@@ -299,7 +300,8 @@ func (h *Handler) HandleSSEWithActualSessionID(c *fiber.Ctx, initialResponses []
 				streamLogger.Info().
 					Dur("timeout", 5*time.Minute).
 					Msg("Streamable HTTP SSE session timeout")
-				close(done)
+			case <-c.Context().Done():
+				streamLogger.Info().Msg("Streamable HTTP SSE client disconnected")
 			case <-done:
 				return
 			}
@@ -517,9 +519,14 @@ func (h *Handler) HandleSSE(c *fiber.Ctx, initialResponses []map[string]interfac
 						Interface("panic", r).
 						Msg("Recovered from panic in Streamable HTTP SSE goroutine")
 				}
+				// Гарантируем очистку ресурсов
+				if autoCreatedSession {
+					h.sessionManager.RemoveSession(sessionID)
+				}
+				close(done)
 			}()
 
-			// Используем timeout вместо c.Context().Done() для безопасности
+			// Используем timeout с контекстом для лучшего управления ресурсами
 			timeout := time.NewTimer(5 * time.Minute)
 			defer timeout.Stop()
 
@@ -528,12 +535,10 @@ func (h *Handler) HandleSSE(c *fiber.Ctx, initialResponses []map[string]interfac
 				streamLogger.Info().
 					Dur("timeout", 5*time.Minute).
 					Msg("Streamable HTTP SSE session timeout")
-
-				if autoCreatedSession {
-					h.sessionManager.RemoveSession(sessionID)
-				}
-				close(done)
+			case <-c.Context().Done():
+				streamLogger.Info().Msg("Streamable HTTP SSE client disconnected")
 			case <-done:
+				return
 			}
 		}()
 
@@ -566,10 +571,13 @@ func (h *Handler) HandleSSE(c *fiber.Ctx, initialResponses []map[string]interfac
 				w.Flush()
 				messageCount++
 
-				streamLogger.Trace().
-					Int64("event_id", eventID).
-					Int("message_count", messageCount).
-					Msg("Sent Streamable HTTP SSE message")
+				// Логируем только каждое 5-е сообщение для снижения нагрузки
+				if messageCount%5 == 0 {
+					streamLogger.Debug().
+						Int64("last_event_id", eventID).
+						Int("message_count", messageCount).
+						Msg("Sent Streamable HTTP SSE messages (batch log)")
+				}
 
 			case <-pingTicker.C:
 				fmt.Fprintf(w, ": ping\n\n")
