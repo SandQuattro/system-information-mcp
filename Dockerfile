@@ -14,7 +14,7 @@ COPY vendor/ ./vendor/
 COPY . .
 
 # Собираем приложение с использованием vendor
-RUN CGO_ENABLED=0 GOOS=linux go build -mod=vendor -a -installsuffix cgo -o system-info-server .
+RUN CGO_ENABLED=0 GOOS=linux go build -mod=vendor -a -installsuffix cgo -o system-info-server ./cmd/mcp
 RUN chmod +x system-info-server
 
 # Финальная стадия
