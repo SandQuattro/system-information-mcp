@@ -2,7 +2,7 @@
 
 Model Context Protocol (MCP) сервер для получения системной информации (CPU и память).
 
-# Спецификация
+## Спецификация
 
 <https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#streamable-http>
 
