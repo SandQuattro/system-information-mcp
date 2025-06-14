@@ -704,9 +704,9 @@ func main() {
 			sessionManager: sessionManager,
 		}
 
-		addr := fmt.Sprintf(":%d", portInt)
+		addr := fmt.Sprintf("0.0.0.0:%d", portInt)
 		log.Printf("Starting HTTP server on port %s", port)
-		log.Printf("SSE available at http://localhost%s/sse", addr)
+		log.Printf("SSE available at http://%s/sse", addr)
 
 		if err := http.ListenAndServe(addr, handler); err != nil {
 			log.Fatalf("Error starting HTTP server: %v", err)
