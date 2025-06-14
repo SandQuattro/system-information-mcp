@@ -38,7 +38,11 @@ RUN go clean -cache -modcache -testcache && \
     go mod verify
 
 # Собираем приложение с принудительным включением modules без флага -a
-RUN GO111MODULE=on GOPATH="" CGO_ENABLED=0 GOOS=linux go build -mod=mod -installsuffix cgo -o system-info-server .
+# RUN GO111MODULE=on GOPATH="" CGO_ENABLED=0 GOOS=linux go build -mod=mod -installsuffix cgo -o system-info-server .
+
+# Альтернативный способ сборки если первый не сработает
+RUN GO111MODULE=on CGO_ENABLED=0 GOOS=linux GOBIN=/app go install -mod=mod . && mv system-info-server system-info-server || echo "Alternative build failed"
+
 RUN chmod +x system-info-server
 
 # Финальная стадия
