@@ -176,8 +176,13 @@ func (h *FiberMCPHandler) handleStreamableHTTPSSE(c *fiber.Ctx, initialResponses
 
 	log.Printf("[Streamable HTTP SSE] Session: %s, Last-Event-Id: %s", sessionID, lastEventID)
 
+	// Если нет Session ID, создаем новый как fallback
+	autoCreatedSession := false
 	if sessionID == "" {
-		return c.Status(fiber.StatusBadRequest).SendString("Missing Mcp-Session-Id header")
+		sessionID = h.sessionManager.CreateSession()
+		autoCreatedSession = true
+		log.Printf("[Streamable HTTP SSE] Created new session: %s", sessionID)
+		c.Set("Mcp-Session-Id", sessionID)
 	}
 
 	session, exists := h.sessionManager.GetSession(sessionID)
@@ -204,9 +209,22 @@ func (h *FiberMCPHandler) handleStreamableHTTPSSE(c *fiber.Ctx, initialResponses
 		defer pingTicker.Stop()
 
 		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("[Streamable HTTP SSE] Recovered from panic: %v", r)
+				}
+			}()
+
+			// Используем timeout вместо c.Context().Done() для безопасности
+			timeout := time.NewTimer(5 * time.Minute)
+			defer timeout.Stop()
+
 			select {
-			case <-c.Context().Done():
-				log.Printf("[Streamable HTTP SSE] Client disconnected, session: %s", sessionID)
+			case <-timeout.C:
+				log.Printf("[Streamable HTTP SSE] Session timeout, session: %s", sessionID)
+				if autoCreatedSession {
+					h.sessionManager.RemoveSession(sessionID)
+				}
 				close(done)
 			case <-done:
 			}
@@ -317,10 +335,21 @@ func (h *FiberMCPHandler) handleLegacySSE(c *fiber.Ctx) error {
 		pingTicker := time.NewTicker(30 * time.Second)
 		defer pingTicker.Stop()
 
+		// Используем безопасный способ отслеживания отключения клиента
 		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("[Legacy SSE] Recovered from panic: %v", r)
+				}
+			}()
+
+			// Используем простой timeout вместо c.Context().Done() для избежания паники
+			timeout := time.NewTimer(5 * time.Minute)
+			defer timeout.Stop()
+
 			select {
-			case <-c.Context().Done():
-				log.Printf("[Legacy SSE] Client disconnected, session: %s", sessionID)
+			case <-timeout.C:
+				log.Printf("[Legacy SSE] Session timeout, session: %s", sessionID)
 				if autoCreatedSession {
 					h.sessionManager.RemoveSession(sessionID)
 				}
@@ -424,7 +453,7 @@ func (h *FiberMCPHandler) handleInitializeRequest(request map[string]interface{}
 		"jsonrpc": "2.0",
 		"id":      id,
 		"result": map[string]interface{}{
-			"protocolVersion": "2025-03-26",
+			"protocolVersion": "2024-11-05",
 			"capabilities": map[string]interface{}{
 				"tools": map[string]interface{}{},
 			},
