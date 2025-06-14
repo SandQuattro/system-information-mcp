@@ -145,9 +145,9 @@ func (h *MCPHandler) handleStreamableHTTPPost(w http.ResponseWriter, r *http.Req
 	var messages []map[string]interface{}
 
 	// Парсим JSON - может быть одиночное сообщение или массив
-	if err := json.Unmarshal(body, &messages); err != nil {
+	if err = json.Unmarshal(body, &messages); err != nil {
 		var singleMessage map[string]interface{}
-		if err := json.Unmarshal(body, &singleMessage); err != nil {
+		if err = json.Unmarshal(body, &singleMessage); err != nil {
 			log.Printf("[Streamable HTTP POST] JSON parsing error: %v", err)
 			http.Error(w, "Invalid JSON", http.StatusBadRequest)
 			return
