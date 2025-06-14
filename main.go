@@ -45,8 +45,8 @@ func main() {
 			AppName:               "MCP System Info Server",
 		})
 
-		// Добавляем middleware для логгирования HTTP запросов
-		app.Use(middleware.LoggingMiddleware())
+		// Добавляем middleware для логгирования HTTP запросов с расширенной информацией о клиентах
+		app.Use(middleware.RequestLoggingMiddleware())
 
 		// Добавляем CORS middleware
 		app.Use(cors.New(cors.Config{

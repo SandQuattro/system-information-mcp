@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"strings"
 	"time"
 
 	"mcp-system-info/internal/logger"
@@ -136,6 +137,92 @@ func CustomLoggingMiddleware(config LoggingConfig) fiber.Handler {
 			Dur("duration", duration).
 			Int("response_size", responseSize).
 			Msg("Request completed")
+
+		return err
+	}
+}
+
+func RequestLoggingMiddleware() fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		start := time.Now()
+
+		// Извлекаем информацию о клиенте из заголовков
+		userAgent := c.Get("User-Agent")
+		clientName := c.Get("X-Client-Name")
+		clientVersion := c.Get("X-Client-Version")
+		acceptHeader := c.Get("Accept")
+		contentType := c.Get("Content-Type")
+
+		// Определяем тип клиента по User-Agent
+		var clientType string
+		switch {
+		case strings.Contains(userAgent, "cursor"):
+			clientType = "cursor"
+		case strings.Contains(userAgent, "n8n"):
+			clientType = "n8n"
+		case strings.Contains(userAgent, "McpClient"):
+			clientType = "mcp-client"
+		case strings.Contains(userAgent, "curl"):
+			clientType = "curl"
+		case strings.Contains(userAgent, "Postman"):
+			clientType = "postman"
+		default:
+			clientType = "unknown"
+		}
+
+		sessionID := c.Get("Mcp-Session-Id")
+		if sessionID == "" {
+			sessionID = "unknown"
+		}
+
+		httpLogger := logger.HTTP.With().
+			Str("session_id", sessionID).
+			Str("method", c.Method()).
+			Str("path", c.Path()).
+			Str("remote_ip", c.IP()).
+			Str("user_agent", userAgent).
+			Str("client_type", clientType).
+			Logger()
+
+		// Добавляем дополнительные поля если они есть
+		if clientName != "" {
+			httpLogger = httpLogger.With().Str("client_name", clientName).Logger()
+		}
+		if clientVersion != "" {
+			httpLogger = httpLogger.With().Str("client_version", clientVersion).Logger()
+		}
+		if acceptHeader != "" {
+			httpLogger = httpLogger.With().Str("accept", acceptHeader).Logger()
+		}
+		if contentType != "" {
+			httpLogger = httpLogger.With().Str("content_type", contentType).Logger()
+		}
+
+		httpLogger.Info().Msg("Request started")
+
+		// Обрабатываем запрос
+		err := c.Next()
+
+		// Логируем завершение запроса
+		duration := time.Since(start)
+		status := c.Response().StatusCode()
+		responseSize := len(c.Response().Body())
+
+		logEvent := httpLogger.With().
+			Dur("duration", duration).
+			Int("status", status).
+			Int("response_size", responseSize).
+			Logger()
+
+		if err != nil {
+			logEvent.Error().
+				Err(err).
+				Msg("Request failed")
+		} else if status >= 400 {
+			logEvent.Warn().Msg("Request completed")
+		} else {
+			logEvent.Info().Msg("Request completed")
+		}
 
 		return err
 	}
