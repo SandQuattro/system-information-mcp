@@ -12,12 +12,14 @@ import (
 
 var (
 	// Глобальные логгеры для разных компонентов
-	Main    zerolog.Logger
-	HTTP    zerolog.Logger
-	Session zerolog.Logger
-	MCP     zerolog.Logger
-	Tools   zerolog.Logger
-	SysInfo zerolog.Logger
+	Main       zerolog.Logger
+	HTTP       zerolog.Logger
+	Session    zerolog.Logger
+	MCP        zerolog.Logger
+	Tools      zerolog.Logger
+	SysInfo    zerolog.Logger
+	SSE        zerolog.Logger
+	Streamable zerolog.Logger
 )
 
 // InitLogger инициализирует логгеры на основе переменных окружения
@@ -57,6 +59,8 @@ func InitLogger() {
 	MCP = log.Logger.With().Str("component", "mcp").Logger()
 	Tools = log.Logger.With().Str("component", "tools").Logger()
 	SysInfo = log.Logger.With().Str("component", "sysinfo").Logger()
+	SSE = log.Logger.With().Str("component", "sse").Logger()
+	Streamable = log.Logger.With().Str("component", "streamable").Logger()
 
 	Main.Info().
 		Str("level", level.String()).

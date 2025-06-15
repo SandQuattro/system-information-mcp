@@ -1,10 +1,12 @@
 package handlers
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
 	"sync"
+	"time"
 
 	"mcp-system-info/internal/logger"
 	"mcp-system-info/internal/sysinfo"
@@ -32,8 +34,28 @@ func NewFiberMCPHandler(server *server.MCPServer, sessionManager *types.SessionM
 }
 
 func (h *FiberMCPHandler) RegisterRoutes(app *fiber.App) {
-	// Простой JSON-RPC endpoint
-	app.Post("/", h.HandleJSONRPC)
+	// Health check endpoint
+	app.Get("/", h.HandleHealthCheck)
+
+	// MCP Streamable HTTP endpoints
+	app.Post("/mcp", h.HandleJSONRPC)
+	app.Get("/mcp", h.HandleSSE)
+}
+
+// HandleHealthCheck простой health check endpoint
+func (h *FiberMCPHandler) HandleHealthCheck(c *fiber.Ctx) error {
+	logger.HTTP.Info().
+		Str("method", "GET").
+		Str("path", "/").
+		Str("user_agent", c.Get("User-Agent")).
+		Msg("Health check request")
+
+	return c.JSON(map[string]interface{}{
+		"status":  "ok",
+		"service": "mcp-system-info",
+		"version": "1.0.0",
+		"message": "MCP endpoints available at /mcp",
+	})
 }
 
 // HandleJSONRPC обрабатывает JSON-RPC запросы
@@ -70,6 +92,62 @@ func (h *FiberMCPHandler) HandleJSONRPC(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(response)
+}
+
+// HandleSSE обрабатывает GET запросы для SSE streams
+func (h *FiberMCPHandler) HandleSSE(c *fiber.Ctx) error {
+	accept := c.Get("Accept", "")
+
+	// Проверяем поддержку text/event-stream
+	if accept != "" && (accept == "text/event-stream" ||
+		c.Accepts("text/event-stream") == "text/event-stream") {
+
+		sessionID := c.Get("Mcp-Session-Id", "")
+
+		logger.SSE.Info().
+			Str("session_id", sessionID).
+			Str("accept", accept).
+			Msg("Opening SSE stream")
+
+		// Устанавливаем SSE headers
+		c.Set("Content-Type", "text/event-stream")
+		c.Set("Cache-Control", "no-cache")
+		c.Set("Connection", "keep-alive")
+		c.Set("Access-Control-Allow-Origin", "*")
+
+		// TODO: Реализовать SSE stream
+		c.Context().SetBodyStreamWriter(func(w *bufio.Writer) {
+			logger.SSE.Debug().Msg("SSE stream writer started")
+
+			// Отправляем initial event
+			fmt.Fprintf(w, "event: message\n")
+			fmt.Fprintf(w, "data: {\"type\":\"connected\"}\n\n")
+			w.Flush()
+
+			// Держим соединение открытым
+			select {
+			case <-c.Context().Done():
+				logger.SSE.Debug().Msg("SSE stream closed by client")
+			case <-time.After(30 * time.Second):
+				logger.SSE.Debug().Msg("SSE stream timeout")
+			}
+		})
+
+		return nil
+	}
+
+	// Если не SSE запрос, возвращаем информацию о сервере
+	return c.JSON(map[string]interface{}{
+		"name":          "mcp-system-info",
+		"version":       "1.0.0",
+		"protocol":      "MCP Streamable HTTP",
+		"specification": "2025-03-26",
+		"endpoints": []string{
+			"GET / (Health Check)",
+			"POST /mcp (JSON-RPC)",
+			"GET /mcp (SSE Stream)",
+		},
+	})
 }
 
 func (h *FiberMCPHandler) handleJSONRPCMessage(request map[string]interface{}, sessionID string) map[string]interface{} {
