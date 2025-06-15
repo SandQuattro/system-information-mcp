@@ -6,7 +6,7 @@ Model Context Protocol (MCP) сервер для получения систем
 
 <https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#streamable-http>
 
-## Возможности
+## Возможности сервера
 
 - Получение информации о CPU (количество ядер, модель, загрузка)
 - Получение информации о памяти (общая, доступная, используемая)
