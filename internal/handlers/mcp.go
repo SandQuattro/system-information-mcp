@@ -2,12 +2,11 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 
 	"mcp-system-info/internal/logger"
-	"mcp-system-info/internal/sse"
-	"mcp-system-info/internal/streamable"
 	"mcp-system-info/internal/sysinfo"
 	"mcp-system-info/internal/tools"
 	"mcp-system-info/internal/types"
@@ -21,8 +20,6 @@ type FiberMCPHandler struct {
 	server               *server.MCPServer
 	sessionManager       *types.SessionManager
 	lastCreatedSessionID sync.Map
-	streamableHandler    *streamable.Handler
-	legacyHandler        *sse.Handler
 }
 
 func NewFiberMCPHandler(server *server.MCPServer, sessionManager *types.SessionManager) *FiberMCPHandler {
@@ -31,22 +28,48 @@ func NewFiberMCPHandler(server *server.MCPServer, sessionManager *types.SessionM
 		sessionManager: sessionManager,
 	}
 
-	// Создаем handlers для разных протоколов
-	handler.streamableHandler = streamable.NewHandler(sessionManager, &handler.lastCreatedSessionID, handler.handleJSONRPCMessage)
-	handler.legacyHandler = sse.NewHandler(sessionManager, &handler.lastCreatedSessionID, handler.handleJSONRPCMessage)
-
 	return handler
 }
 
 func (h *FiberMCPHandler) RegisterRoutes(app *fiber.App) {
-	// Streamable HTTP на корневом маршруте (2025-03-26)
-	app.Post("/", h.streamableHandler.HandlePost)
-	app.Get("/", h.streamableHandler.HandleGet)
-	app.Delete("/", h.streamableHandler.HandleDelete)
+	// Простой JSON-RPC endpoint
+	app.Post("/", h.HandleJSONRPC)
+}
 
-	// Legacy SSE для обратной совместимости (2024-11-05)
-	app.Post("/sse", h.legacyHandler.HandlePost)
-	app.Get("/sse", h.legacyHandler.HandleSSE)
+// HandleJSONRPC обрабатывает JSON-RPC запросы
+func (h *FiberMCPHandler) HandleJSONRPC(c *fiber.Ctx) error {
+	// Получаем session ID из заголовков
+	sessionID := c.Get("Mcp-Session-Id", "")
+
+	mcpLogger := logger.GetMCPLogger("unknown", sessionID)
+
+	// Парсим JSON-RPC запрос
+	var request map[string]interface{}
+	if err := json.Unmarshal(c.Body(), &request); err != nil {
+		mcpLogger.Error().Err(err).Msg("Failed to parse JSON-RPC request")
+		return c.Status(400).JSON(map[string]interface{}{
+			"jsonrpc": "2.0",
+			"error": map[string]interface{}{
+				"code":    -32700,
+				"message": "Parse error",
+			},
+		})
+	}
+
+	// Обрабатываем запрос
+	response := h.handleJSONRPCMessage(request, sessionID)
+	if response == nil {
+		return c.SendStatus(204) // No Content
+	}
+
+	// Устанавливаем session ID в заголовок ответа если был создан новый
+	if sessionID == "" {
+		if storedSessionID, ok := h.lastCreatedSessionID.Load("sessionID"); ok {
+			c.Set("Mcp-Session-Id", storedSessionID.(string))
+		}
+	}
+
+	return c.JSON(response)
 }
 
 func (h *FiberMCPHandler) handleJSONRPCMessage(request map[string]interface{}, sessionID string) map[string]interface{} {
@@ -133,31 +156,15 @@ func (h *FiberMCPHandler) handleInitializeRequest(request map[string]interface{}
 
 	h.lastCreatedSessionID.Store("sessionID", sessionID)
 
-	// Определяем версию протокола по params запроса
-	protocolVersion := "2024-11-05" // Legacy SSE по умолчанию
-	if params, ok := request["params"].(map[string]interface{}); ok {
-		if requestedVersion, ok := params["protocolVersion"].(string); ok {
-			logger.Session.Debug().
-				Str("session_id", sessionID).
-				Str("requested_version", requestedVersion).
-				Msg("Client requested specific protocol version")
-
-			if requestedVersion == "2025-03-26" {
-				protocolVersion = "2025-03-26" // Streamable HTTP
-			}
-		}
-	}
-
 	logger.Session.Info().
 		Str("session_id", sessionID).
-		Str("protocol_version", protocolVersion).
 		Msg("Initialize response prepared")
 
 	return map[string]interface{}{
 		"jsonrpc": "2.0",
 		"id":      id,
 		"result": map[string]interface{}{
-			"protocolVersion": protocolVersion,
+			"protocolVersion": "2024-11-05",
 			"capabilities": map[string]interface{}{
 				"tools": map[string]interface{}{},
 			},
