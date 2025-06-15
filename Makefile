@@ -25,17 +25,12 @@ build-vendor: vendor ## build project with vendor
 	CGO_ENABLED=0 GOOS=linux go build -mod=vendor -a -installsuffix cgo -o system-info-server ./cmd/mcp
 
 # ---------------------------------- DOCKER ------------------------------------
-.PHONY: docker-build
-docker-build: vendor ## build docker image with vendor
-	docker build -t mcp-system-info .
-
-.PHONY: docker-up
-docker-up: ## start docker compose
-	docker-compose up -d
-
-.PHONY: docker-down
-docker-down: ## stop docker compose
-	docker-compose down
+.PHONY: docker
+docker: vendor ## build docker image with vendor
+	docker build --no-cache -t mcp-system-info .
+	docker stop mcp-system-info || true
+	docker rm mcp-system-info || true
+	docker run -p 8080:8080 -d --name mcp-system-info mcp-system-info
 
 # ---------------------------------- LINTING ------------------------------------
 GOLANGCI_LINT = golangci-lint
