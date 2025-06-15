@@ -69,8 +69,8 @@ func main() {
 		// Добавляем CORS middleware
 		app.Use(cors.New(cors.Config{
 			AllowOrigins:     "*",
-			AllowMethods:     "GET,POST,OPTIONS,DELETE",
-			AllowHeaders:     "Content-Type,Mcp-Session-Id,Accept,Last-Event-Id",
+			AllowMethods:     "GET,POST,OPTIONS",
+			AllowHeaders:     "Content-Type,Mcp-Session-Id",
 			ExposeHeaders:    "Mcp-Session-Id",
 			AllowCredentials: false,
 		}))

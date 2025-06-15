@@ -13,17 +13,7 @@ type Session struct {
 	ID           string
 	CreatedAt    time.Time
 	LastActivity time.Time
-	SSEChan      chan map[string]interface{}
 	mu           sync.RWMutex
-	eventCounter int64
-	storedEvents []StoredEvent
-	maxEvents    int
-}
-
-// StoredEvent представляет сохраненное событие для воспроизведения
-type StoredEvent struct {
-	ID   int64
-	Data interface{}
 }
 
 // NewSession создает новую сессию
@@ -36,8 +26,6 @@ func NewSession(id string) *Session {
 		ID:           id,
 		CreatedAt:    time.Now(),
 		LastActivity: time.Now(),
-		SSEChan:      make(chan map[string]interface{}, 100),
-		maxEvents:    100,
 	}
 }
 
@@ -57,84 +45,14 @@ func (s *Session) UpdateActivity() {
 	}
 }
 
-// StoreEvent сохраняет событие и возвращает уникальный ID
-func (s *Session) StoreEvent(data interface{}) int64 {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	s.eventCounter++
-	event := StoredEvent{
-		ID:   s.eventCounter,
-		Data: data,
-	}
-
-	s.storedEvents = append(s.storedEvents, event)
-
-	// Ограничиваем количество сохраненных событий
-	if len(s.storedEvents) > s.maxEvents {
-		removed := len(s.storedEvents) - s.maxEvents
-		s.storedEvents = s.storedEvents[removed:]
-
-		logger.Session.Debug().
-			Str("session_id", s.ID).
-			Int("removed_events", removed).
-			Int("current_events", len(s.storedEvents)).
-			Msg("Cleaned up old events")
-	}
-
-	// Логируем только каждое 10-е событие для снижения нагрузки
-	if s.eventCounter%10 == 0 {
-		logger.Session.Debug().
-			Str("session_id", s.ID).
-			Int64("event_id", s.eventCounter).
-			Int("total_events", len(s.storedEvents)).
-			Msg("Event stored (batch log)")
-	}
-
-	return s.eventCounter
-}
-
-// GetEventsAfter возвращает события после указанного ID
-func (s *Session) GetEventsAfter(lastEventID int64) []StoredEvent {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	var result []StoredEvent
-	for _, event := range s.storedEvents {
-		if event.ID > lastEventID {
-			result = append(result, event)
-		}
-	}
-
-	if len(result) > 0 {
-		logger.Session.Debug().
-			Str("session_id", s.ID).
-			Int64("last_event_id", lastEventID).
-			Int("events_found", len(result)).
-			Msg("Retrieved events after ID")
-	}
-
-	return result
-}
-
-// GetCurrentEventID возвращает текущий ID события
-func (s *Session) GetCurrentEventID() int64 {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.eventCounter
-}
-
 // Close закрывает сессию
 func (s *Session) Close() {
 	logger.Session.Info().
 		Str("session_id", s.ID).
 		Time("created_at", s.CreatedAt).
 		Time("last_activity", s.LastActivity).
-		Int("stored_events", len(s.storedEvents)).
 		Dur("session_duration", time.Since(s.CreatedAt)).
 		Msg("Closing session")
-
-	close(s.SSEChan)
 }
 
 // SessionManager управляет сессиями

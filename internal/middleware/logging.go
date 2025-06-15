@@ -186,12 +186,6 @@ func RequestLoggingMiddleware() fiber.Handler {
 			clientType = "cursor"
 		case strings.Contains(userAgent, "cursor"):
 			clientType = "cursor"
-		case c.Path() == "/sse" && strings.Contains(userAgent, "node"):
-			// Legacy SSE endpoint с node User-Agent обычно означает Cursor
-			clientType = "cursor"
-		case c.Path() == "/" && strings.Contains(userAgent, "node") && detectedClientName == "":
-			// Streamable HTTP endpoint с node User-Agent без clientInfo обычно означает n8n
-			clientType = "n8n"
 		case strings.Contains(userAgent, "n8n"):
 			clientType = "n8n"
 		case strings.Contains(detectedClientName, "McpClient") || strings.Contains(userAgent, "McpClient"):
