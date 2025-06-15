@@ -78,6 +78,11 @@ func (h *FiberMCPHandler) HandleJSONRPC(c *fiber.Ctx) error {
 		})
 	}
 
+	// Проверяем если это streaming tool call - переключаемся в SSE режим
+	if h.isStreamingToolCall(request) {
+		return h.handleStreamingToolCall(c, request, sessionID)
+	}
+
 	// Обрабатываем запрос
 	response := h.handleJSONRPCMessage(request, sessionID)
 	if response == nil {
@@ -92,6 +97,192 @@ func (h *FiberMCPHandler) HandleJSONRPC(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(response)
+}
+
+// isStreamingToolCall проверяет является ли запрос вызовом streaming tool
+func (h *FiberMCPHandler) isStreamingToolCall(request map[string]interface{}) bool {
+	method, ok := request["method"].(string)
+	if !ok || method != "tools/call" {
+		return false
+	}
+
+	params, ok := request["params"].(map[string]interface{})
+	if !ok {
+		return false
+	}
+
+	toolName, ok := params["name"].(string)
+	if !ok {
+		return false
+	}
+
+	// Список streaming tools
+	streamingTools := []string{"system_monitor_stream"}
+	for _, streamTool := range streamingTools {
+		if toolName == streamTool {
+			return true
+		}
+	}
+
+	return false
+}
+
+// handleStreamingToolCall обрабатывает streaming tool calls в SSE режиме
+func (h *FiberMCPHandler) handleStreamingToolCall(c *fiber.Ctx, request map[string]interface{}, sessionID string) error {
+	logger.Streamable.Info().
+		Str("session_id", sessionID).
+		Msg("Switching to SSE mode for streaming tool call")
+
+	// Устанавливаем SSE headers
+	c.Set("Content-Type", "text/event-stream")
+	c.Set("Cache-Control", "no-cache")
+	c.Set("Connection", "keep-alive")
+	c.Set("Access-Control-Allow-Origin", "*")
+
+	// Получаем session
+	session, exists := h.sessionManager.GetSession(sessionID)
+	if !exists {
+		return c.Status(400).SendString("event: error\ndata: {\"error\":\"Session not found\"}\n\n")
+	}
+
+	// Парсим tool call параметры
+	params, _ := request["params"].(map[string]interface{})
+	toolName, _ := params["name"].(string)
+
+	c.Context().SetBodyStreamWriter(func(w *bufio.Writer) {
+		// Отправляем начальный event
+		fmt.Fprintf(w, "event: tool_call_start\n")
+		fmt.Fprintf(w, "data: {\"tool\":\"%s\"}\n\n", toolName)
+		w.Flush()
+
+		if toolName == "system_monitor_stream" {
+			h.handleSystemMonitorStream(w, params, session)
+		}
+
+		// Отправляем финальный event
+		fmt.Fprintf(w, "event: tool_call_complete\n")
+		fmt.Fprintf(w, "data: {\"status\":\"completed\"}\n\n")
+		w.Flush()
+	})
+
+	return nil
+}
+
+// handleSystemMonitorStream выполняет real-time streaming мониторинга системы
+func (h *FiberMCPHandler) handleSystemMonitorStream(w *bufio.Writer, params map[string]interface{}, session *types.Session) {
+	logger.Streamable.Info().
+		Str("session_id", session.ID).
+		Msg("Starting real-time system monitor stream")
+
+	// Получаем параметры
+	arguments := make(map[string]interface{})
+	if args, ok := params["arguments"].(map[string]interface{}); ok {
+		arguments = args
+	}
+
+	var durationStr, intervalStr string
+	if dur, exists := arguments["duration"]; exists {
+		if durStr, ok := dur.(string); ok {
+			durationStr = durStr
+		}
+	}
+	if inter, exists := arguments["interval"]; exists {
+		if interStr, ok := inter.(string); ok {
+			intervalStr = interStr
+		}
+	}
+
+	if durationStr == "" {
+		durationStr = "30s"
+	}
+	if intervalStr == "" {
+		intervalStr = "2s"
+	}
+
+	duration, err := time.ParseDuration(durationStr)
+	if err != nil {
+		fmt.Fprintf(w, "event: error\n")
+		fmt.Fprintf(w, "data: {\"error\":\"Invalid duration format: %v\"}\n\n", err)
+		w.Flush()
+		return
+	}
+
+	interval, err := time.ParseDuration(intervalStr)
+	if err != nil {
+		fmt.Fprintf(w, "event: error\n")
+		fmt.Fprintf(w, "data: {\"error\":\"Invalid interval format: %v\"}\n\n", err)
+		w.Flush()
+		return
+	}
+
+	// Отправляем начальную информацию
+	fmt.Fprintf(w, "event: stream_start\n")
+	fmt.Fprintf(w, "data: {\"duration\":\"%v\",\"interval\":\"%v\"}\n\n", duration, interval)
+	w.Flush()
+
+	endTime := time.Now().Add(duration)
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	iteration := 0
+	for {
+		select {
+		case <-ticker.C:
+			if time.Now().After(endTime) {
+				logger.Streamable.Info().
+					Str("session_id", session.ID).
+					Msg("Stream duration completed")
+				return
+			}
+
+			iteration++
+
+			// Получаем системную информацию
+			sysInfo, err := sysinfo.Get()
+			if err != nil {
+				logger.Streamable.Error().
+					Err(err).
+					Str("session_id", session.ID).
+					Int("iteration", iteration).
+					Msg("Failed to get system info during stream")
+
+				fmt.Fprintf(w, "event: error\n")
+				fmt.Fprintf(w, "data: {\"iteration\":%d,\"error\":\"%v\"}\n\n", iteration, err)
+				w.Flush()
+				continue
+			}
+
+			// 🚀 ОТПРАВЛЯЕМ ДАННЫЕ В РЕАЛЬНОМ ВРЕМЕНИ!
+			timestamp := time.Now().Format("15:04:05")
+			fmt.Fprintf(w, "event: sample\n")
+			fmt.Fprintf(w, "data: {")
+			fmt.Fprintf(w, "\"iteration\":%d,", iteration)
+			fmt.Fprintf(w, "\"timestamp\": \"%s\",", timestamp)
+			fmt.Fprintf(w, "\"cpu\": {")
+			fmt.Fprintf(w, "\"model\": \"%s\",", sysInfo.CPU.ModelName)
+			fmt.Fprintf(w, "\"cores\": %d,", sysInfo.CPU.Count)
+			fmt.Fprintf(w, "\"usage\": %.2f", sysInfo.CPU.UsagePercent)
+			fmt.Fprintf(w, "},")
+			fmt.Fprintf(w, "\"memory\": {")
+			fmt.Fprintf(w, "\"total_gb\": %.2f,", float64(sysInfo.Memory.Total)/(1024*1024*1024))
+			fmt.Fprintf(w, "\"used_gb\": %.2f,", float64(sysInfo.Memory.Used)/(1024*1024*1024))
+			fmt.Fprintf(w, "\"available_gb\": %.2f,", float64(sysInfo.Memory.Available)/(1024*1024*1024))
+			fmt.Fprintf(w, "\"used_percent\": %.2f", sysInfo.Memory.UsedPercent)
+			fmt.Fprintf(w, "}}\n\n")
+			w.Flush() // 🔥 НЕМЕДЛЕННАЯ ОТПРАВКА!
+
+			logger.Streamable.Debug().
+				Str("session_id", session.ID).
+				Int("iteration", iteration).
+				Float64("cpu_usage", sysInfo.CPU.UsagePercent).
+				Float64("memory_usage", sysInfo.Memory.UsedPercent).
+				Msg("Sample sent via SSE")
+
+		default:
+			// Проверяем не закрыто ли соединение
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
 }
 
 // HandleSSE обрабатывает GET запросы для SSE streams
