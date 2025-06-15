@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -78,8 +79,8 @@ func (h *FiberMCPHandler) HandleJSONRPC(c *fiber.Ctx) error {
 		})
 	}
 
-	// Проверяем если это streaming tool call - переключаемся в SSE режим
-	if h.isStreamingToolCall(request) {
+	// Проверяем если это streaming tool call и клиент поддерживает SSE
+	if h.isStreamingToolCall(request) && h.clientSupportsSSE(c) {
 		return h.handleStreamingToolCall(c, request, sessionID)
 	}
 
@@ -127,6 +128,16 @@ func (h *FiberMCPHandler) isStreamingToolCall(request map[string]interface{}) bo
 	return false
 }
 
+// clientSupportsSSE проверяет поддерживает ли клиент SSE потоки
+func (h *FiberMCPHandler) clientSupportsSSE(c *fiber.Ctx) bool {
+	accept := c.Get("Accept", "")
+
+	// Проверяем заголовок Accept на поддержку text/event-stream
+	return accept != "" && (accept == "text/event-stream" ||
+		c.Accepts("text/event-stream") == "text/event-stream" ||
+		strings.Contains(accept, "text/event-stream"))
+}
+
 // handleStreamingToolCall обрабатывает streaming tool calls в SSE режиме
 func (h *FiberMCPHandler) handleStreamingToolCall(c *fiber.Ctx, request map[string]interface{}, sessionID string) error {
 	logger.Streamable.Info().
@@ -149,27 +160,20 @@ func (h *FiberMCPHandler) handleStreamingToolCall(c *fiber.Ctx, request map[stri
 	params, _ := request["params"].(map[string]interface{})
 	toolName, _ := params["name"].(string)
 
+	// Получаем request ID для финального ответа
+	requestID := request["id"]
+
 	c.Context().SetBodyStreamWriter(func(w *bufio.Writer) {
-		// Отправляем начальный event
-		fmt.Fprintf(w, "event: tool_call_start\n")
-		fmt.Fprintf(w, "data: {\"tool\":\"%s\"}\n\n", toolName)
-		w.Flush()
-
 		if toolName == "system_monitor_stream" {
-			h.handleSystemMonitorStream(w, params, session)
+			h.handleSystemMonitorStream(w, params, session, requestID)
 		}
-
-		// Отправляем финальный event
-		fmt.Fprintf(w, "event: tool_call_complete\n")
-		fmt.Fprintf(w, "data: {\"status\":\"completed\"}\n\n")
-		w.Flush()
 	})
 
 	return nil
 }
 
 // handleSystemMonitorStream выполняет real-time streaming мониторинга системы
-func (h *FiberMCPHandler) handleSystemMonitorStream(w *bufio.Writer, params map[string]interface{}, session *types.Session) {
+func (h *FiberMCPHandler) handleSystemMonitorStream(w *bufio.Writer, params map[string]interface{}, session *types.Session, requestID interface{}) {
 	logger.Streamable.Info().
 		Str("session_id", session.ID).
 		Msg("Starting real-time system monitor stream")
@@ -215,9 +219,8 @@ func (h *FiberMCPHandler) handleSystemMonitorStream(w *bufio.Writer, params map[
 		return
 	}
 
-	// Отправляем начальную информацию
-	fmt.Fprintf(w, "event: stream_start\n")
-	fmt.Fprintf(w, "data: {\"duration\":\"%v\",\"interval\":\"%v\"}\n\n", duration, interval)
+	// Отправляем начальную JSON-RPC notification
+	fmt.Fprintf(w, "data: {\"jsonrpc\":\"2.0\",\"method\":\"tool_progress\",\"params\":{\"phase\":\"start\",\"duration\":\"%v\",\"interval\":\"%v\"}}\n\n", duration, interval)
 	w.Flush()
 
 	endTime := time.Now().Add(duration)
@@ -232,6 +235,17 @@ func (h *FiberMCPHandler) handleSystemMonitorStream(w *bufio.Writer, params map[
 				logger.Streamable.Info().
 					Str("session_id", session.ID).
 					Msg("Stream duration completed")
+
+				// Отправляем финальный JSON-RPC response
+				fmt.Fprintf(w, "data: {\"jsonrpc\":\"2.0\",\"id\":")
+				if requestID != nil {
+					jsonBytes, _ := json.Marshal(requestID)
+					fmt.Fprintf(w, "%s", string(jsonBytes))
+				} else {
+					fmt.Fprintf(w, "null")
+				}
+				fmt.Fprintf(w, ",\"result\":{\"status\":\"completed\",\"total_samples\":%d}}\n\n", iteration)
+				w.Flush()
 				return
 			}
 
@@ -246,28 +260,19 @@ func (h *FiberMCPHandler) handleSystemMonitorStream(w *bufio.Writer, params map[
 					Int("iteration", iteration).
 					Msg("Failed to get system info during stream")
 
-				fmt.Fprintf(w, "event: error\n")
-				fmt.Fprintf(w, "data: {\"iteration\":%d,\"error\":\"%v\"}\n\n", iteration, err)
+				// Отправляем JSON-RPC notification об ошибке
+				fmt.Fprintf(w, "data: {\"jsonrpc\":\"2.0\",\"method\":\"tool_progress\",\"params\":{\"iteration\":%d,\"error\":\"%v\"}}\n\n", iteration, err)
 				w.Flush()
 				continue
 			}
 
-			// 🚀 ОТПРАВЛЯЕМ ДАННЫЕ В РЕАЛЬНОМ ВРЕМЕНИ!
+			// 🚀 ОТПРАВЛЯЕМ ДАННЫЕ В РЕАЛЬНОМ ВРЕМЕНИ как JSON-RPC notification!
 			timestamp := time.Now().Format("15:04:05")
-			fmt.Fprintf(w, "event: sample\n")
-			fmt.Fprintf(w, "data: {")
+			fmt.Fprintf(w, "data: {\"jsonrpc\":\"2.0\",\"method\":\"tool_progress\",\"params\":{")
 			fmt.Fprintf(w, "\"iteration\":%d,", iteration)
-			fmt.Fprintf(w, "\"timestamp\": \"%s\",", timestamp)
-			fmt.Fprintf(w, "\"cpu\": {")
-			fmt.Fprintf(w, "\"model\": \"%s\",", sysInfo.CPU.ModelName)
-			fmt.Fprintf(w, "\"cores\": %d,", sysInfo.CPU.Count)
-			fmt.Fprintf(w, "\"usage\": %.2f", sysInfo.CPU.UsagePercent)
-			fmt.Fprintf(w, "},")
-			fmt.Fprintf(w, "\"memory\": {")
-			fmt.Fprintf(w, "\"total_gb\": %.2f,", float64(sysInfo.Memory.Total)/(1024*1024*1024))
-			fmt.Fprintf(w, "\"used_gb\": %.2f,", float64(sysInfo.Memory.Used)/(1024*1024*1024))
-			fmt.Fprintf(w, "\"available_gb\": %.2f,", float64(sysInfo.Memory.Available)/(1024*1024*1024))
-			fmt.Fprintf(w, "\"used_percent\": %.2f", sysInfo.Memory.UsedPercent)
+			fmt.Fprintf(w, "\"timestamp\":\"%s\",", timestamp)
+			fmt.Fprintf(w, "\"cpu\":%.2f,", sysInfo.CPU.UsagePercent)
+			fmt.Fprintf(w, "\"memory\":%.2f", sysInfo.Memory.UsedPercent)
 			fmt.Fprintf(w, "}}\n\n")
 			w.Flush() // 🔥 НЕМЕДЛЕННАЯ ОТПРАВКА!
 
