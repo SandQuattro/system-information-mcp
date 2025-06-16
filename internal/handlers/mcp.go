@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"mcp-system-info/internal/logger"
+	"mcp-system-info/internal/middleware"
 	"mcp-system-info/internal/sysinfo"
 	"mcp-system-info/internal/tools"
 	"mcp-system-info/internal/types"
@@ -35,12 +36,13 @@ func NewFiberMCPHandler(server *server.MCPServer, sessionManager *types.SessionM
 }
 
 func (h *FiberMCPHandler) RegisterRoutes(app *fiber.App) {
-	// Health check endpoint
+	// Health check endpoint (без авторизации)
 	app.Get("/", h.HandleHealthCheck)
 
-	// MCP Streamable HTTP endpoints
-	app.Post("/mcp", h.HandleJSONRPC)
-	app.Get("/mcp", h.HandleSSE)
+	// MCP Streamable HTTP endpoints (с авторизацией)
+	mcpGroup := app.Group("/mcp", middleware.AuthMiddleware())
+	mcpGroup.Post("/", h.HandleJSONRPC)
+	mcpGroup.Get("/", h.HandleSSE)
 }
 
 // HandleHealthCheck простой health check endpoint

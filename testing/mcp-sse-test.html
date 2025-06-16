@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MCP SSE Real-Time Monitor</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            margin: 0;
+            padding: 20px;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            margin: 0;
+            font-size: 2.5em;
+            font-weight: 300;
+        }
+
+        .header p {
+            margin: 10px 0 0 0;
+            opacity: 0.9;
+            font-size: 1.1em;
+        }
+
+        .controls {
+            padding: 30px;
+            border-bottom: 1px solid #e5e7eb;
+            background: #f9fafb;
+        }
+
+        .control-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #374151;
+        }
+
+        input,
+        select {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e5e7eb;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+
+        input:focus,
+        select:focus {
+            outline: none;
+            border-color: #4f46e5;
+        }
+
+        .buttons {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+
+        button {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            flex: 1;
+            min-width: 150px;
+        }
+
+        .btn-primary {
+            background: #4f46e5;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #4338ca;
+            transform: translateY(-2px);
+        }
+
+        .btn-success {
+            background: #10b981;
+            color: white;
+        }
+
+        .btn-success:hover {
+            background: #059669;
+            transform: translateY(-2px);
+        }
+
+        .btn-danger {
+            background: #ef4444;
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #dc2626;
+            transform: translateY(-2px);
+        }
+
+        .btn-secondary {
+            background: #6b7280;
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #4b5563;
+            transform: translateY(-2px);
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none !important;
+        }
+
+        .status {
+            padding: 30px;
+            background: #f8fafc;
+        }
+
+        .status-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px;
+            margin-bottom: 10px;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .status-label {
+            font-weight: 600;
+            color: #374151;
+        }
+
+        .status-value {
+            font-family: 'Courier New', monospace;
+            padding: 5px 10px;
+            background: #e5e7eb;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+
+        .status-connected {
+            background: #dcfce7;
+            color: #166534;
+        }
+
+        .status-disconnected {
+            background: #fecaca;
+            color: #991b1b;
+        }
+
+        .events {
+            padding: 30px;
+            background: #111827;
+            color: #f9fafb;
+            max-height: 500px;
+            overflow-y: auto;
+        }
+
+        .events h3 {
+            margin: 0 0 20px 0;
+            color: #10b981;
+            font-size: 1.5em;
+        }
+
+        .event {
+            background: #1f2937;
+            border: 1px solid #374151;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 15px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            line-height: 1.6;
+            position: relative;
+            animation: slideIn 0.3s ease-out;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateX(-20px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        .event-timestamp {
+            position: absolute;
+            top: 10px;
+            right: 15px;
+            font-size: 12px;
+            color: #9ca3af;
+        }
+
+        .event-start {
+            border-left: 4px solid #10b981;
+        }
+
+        .event-progress {
+            border-left: 4px solid #3b82f6;
+        }
+
+        .event-complete {
+            border-left: 4px solid #8b5cf6;
+        }
+
+        .event-error {
+            border-left: 4px solid #ef4444;
+        }
+
+        .metrics {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+
+        .metric-card {
+            background: #1f2937;
+            border-radius: 10px;
+            padding: 20px;
+            text-align: center;
+            border: 1px solid #374151;
+        }
+
+        .metric-value {
+            font-size: 2.5em;
+            font-weight: bold;
+            color: #10b981;
+            margin-bottom: 10px;
+        }
+
+        .metric-label {
+            color: #9ca3af;
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .clear-btn {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: #374151;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            padding: 8px 12px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+
+        .clear-btn:hover {
+            background: #4b5563;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🚀 MCP SSE Real-Time Monitor</h1>
+            <p>Connect to MCP System Information Server via Server-Sent Events</p>
+        </div>
+
+        <div class="controls">
+            <div class="control-group">
+                <label>MCP Server URL:</label>
+                <input type="text" id="serverUrl" value="http://localhost:8080/mcp" placeholder="Enter server URL">
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                <div class="control-group">
+                    <label>Duration:</label>
+                    <select id="duration">
+                        <option value="5s">5 seconds</option>
+                        <option value="10s" selected>10 seconds</option>
+                        <option value="15s">15 seconds</option>
+                        <option value="30s">30 seconds</option>
+                        <option value="60s">1 minute</option>
+                    </select>
+                </div>
+
+                <div class="control-group">
+                    <label>Interval:</label>
+                    <select id="interval">
+                        <option value="500ms">0.5 seconds</option>
+                        <option value="1s" selected>1 second</option>
+                        <option value="2s">2 seconds</option>
+                        <option value="5s">5 seconds</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="buttons">
+                <button id="initBtn" class="btn-primary">🔌 Initialize Session</button>
+                <button id="sseBtn" class="btn-success" disabled>🚀 Start Monitoring (SSE)</button>
+                <button id="stopBtn" class="btn-danger" disabled>⏹️ Stop Stream</button>
+                <button id="clearBtn" class="btn-secondary">🗑️ Clear Events</button>
+            </div>
+        </div>
+
+        <div class="status">
+            <div class="status-item">
+                <span class="status-label">Connection Status:</span>
+                <span id="connectionStatus" class="status-value status-disconnected">Disconnected</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">Session ID:</span>
+                <span id="sessionId" class="status-value">Not initialized</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">Samples Received:</span>
+                <span id="samplesCount" class="status-value">0</span>
+            </div>
+        </div>
+
+        <div class="events">
+            <h3>📡 Real-Time Events</h3>
+            <button class="clear-btn" onclick="clearEvents()">Clear</button>
+
+            <div class="metrics">
+                <div class="metric-card">
+                    <div id="cpuMetric" class="metric-value">-</div>
+                    <div class="metric-label">CPU Usage %</div>
+                </div>
+                <div class="metric-card">
+                    <div id="memoryMetric" class="metric-value">-</div>
+                    <div class="metric-label">Memory Usage %</div>
+                </div>
+            </div>
+
+            <div id="eventsList"></div>
+        </div>
+    </div>
+
+    <script>
+        let sessionId = null;
+        let eventSource = null;
+        let samplesCount = 0;
+
+        const elements = {
+            initBtn: document.getElementById('initBtn'),
+            sseBtn: document.getElementById('sseBtn'),
+            stopBtn: document.getElementById('stopBtn'),
+            clearBtn: document.getElementById('clearBtn'),
+            connectionStatus: document.getElementById('connectionStatus'),
+            sessionIdDisplay: document.getElementById('sessionId'),
+            samplesCountDisplay: document.getElementById('samplesCount'),
+            eventsList: document.getElementById('eventsList'),
+            cpuMetric: document.getElementById('cpuMetric'),
+            memoryMetric: document.getElementById('memoryMetric'),
+            duration: document.getElementById('duration'),
+            interval: document.getElementById('interval'),
+            serverUrl: document.getElementById('serverUrl')
+        };
+
+        // Initialize session
+        async function initializeSession() {
+            try {
+                elements.initBtn.disabled = true;
+                elements.initBtn.textContent = '🔄 Connecting...';
+
+                const serverUrl = elements.serverUrl.value.trim();
+                if (!serverUrl) {
+                    throw new Error('Please enter server URL');
+                }
+
+                const response = await fetch(serverUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        jsonrpc: '2.0',
+                        method: 'initialize',
+                        id: 'init-' + Date.now(),
+                        params: {
+                            protocolVersion: '2024-11-05',
+                            capabilities: {},
+                            clientInfo: {
+                                name: 'MCP SSE Test Client',
+                                version: '1.0.0'
+                            }
+                        }
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                sessionId = response.headers.get('mcp-session-id');
+                const result = await response.json();
+
+                if (sessionId) {
+                    elements.connectionStatus.textContent = 'Connected';
+                    elements.connectionStatus.className = 'status-value status-connected';
+                    elements.sessionIdDisplay.textContent = sessionId;
+                    elements.sseBtn.disabled = false;
+
+                    addEvent('🎉 Session initialized successfully', 'start', {
+                        sessionId: sessionId,
+                        server: result.result.serverInfo
+                    });
+                } else {
+                    throw new Error('No session ID received');
+                }
+
+            } catch (error) {
+                addEvent('❌ Initialization failed: ' + error.message, 'error');
+                elements.connectionStatus.textContent = 'Error';
+                elements.connectionStatus.className = 'status-value status-disconnected';
+            } finally {
+                elements.initBtn.disabled = false;
+                elements.initBtn.textContent = '🔌 Initialize Session';
+            }
+        }
+
+
+
+        // Start SSE monitoring with EventSource (GET method)
+        function startSSEMonitoring() {
+            if (!sessionId) {
+                alert('Please initialize session first');
+                return;
+            }
+
+            try {
+                elements.sseBtn.disabled = true;
+                elements.stopBtn.disabled = false;
+                samplesCount = 0;
+                elements.samplesCountDisplay.textContent = '0';
+
+                const duration = elements.duration.value;
+                const interval = elements.interval.value;
+
+                addEvent(`🚀 Starting system monitoring: ${duration} duration, ${interval} interval`, 'start');
+
+                // MCP Streamable HTTP - вызов tool через GET параметры
+                const params = new URLSearchParams({
+                    session: sessionId,
+                    tool: 'system_monitor_stream',
+                    duration: duration,
+                    interval: interval
+                });
+
+                const serverUrl = elements.serverUrl.value.trim();
+                const sseUrl = `${serverUrl}?${params}`;
+                eventSource = new EventSource(sseUrl);
+
+                eventSource.onopen = function (event) {
+                    addEvent('🎉 SSE connection established', 'start');
+                };
+
+                eventSource.onmessage = function (event) {
+                    try {
+                        const jsonData = JSON.parse(event.data);
+                        handleSSEMessage(jsonData);
+                    } catch (e) {
+                        console.error('Failed to parse SSE data:', event.data, e);
+                        addEvent(`⚠️ Parse error: ${event.data}`, 'error');
+                    }
+                };
+
+                eventSource.onerror = function (event) {
+                    addEvent('❌ SSE connection error', 'error');
+                    console.error('EventSource error:', event);
+                    stopMonitoring();
+                };
+
+            } catch (error) {
+                addEvent('❌ Failed to start monitoring: ' + error.message, 'error');
+                stopMonitoring();
+            }
+        }
+
+        // Handle SSE messages
+        function handleSSEMessage(data) {
+            if (data.method === 'tool_progress') {
+                const params = data.params;
+
+                if (params.phase === 'start') {
+                    addEvent(`📊 Monitoring started: ${params.duration} duration, ${params.interval} interval`, 'start');
+                } else if (params.iteration) {
+                    samplesCount++;
+                    elements.samplesCountDisplay.textContent = samplesCount;
+
+                    // Update metrics
+                    elements.cpuMetric.textContent = params.cpu.toFixed(2);
+                    elements.memoryMetric.textContent = params.memory.toFixed(2);
+
+                    addEvent(`📈 Sample #${params.iteration} at ${params.timestamp}`, 'progress', {
+                        cpu: params.cpu + '%',
+                        memory: params.memory + '%'
+                    });
+                } else if (params.error) {
+                    addEvent(`⚠️ Error in iteration ${params.iteration}: ${params.error}`, 'error');
+                }
+            } else if (data.result) {
+                addEvent(`🎯 Stream completed: ${data.result.total_samples} total samples`, 'complete');
+                stopMonitoring();
+            }
+        }
+
+        // Stop monitoring
+        function stopMonitoring() {
+            if (eventSource) {
+                if (eventSource.abort) {
+                    eventSource.abort();
+                } else if (eventSource.close) {
+                    eventSource.close();
+                }
+                eventSource = null;
+            }
+
+            elements.sseBtn.disabled = false;
+            elements.stopBtn.disabled = true;
+        }
+
+        // Add event to the list
+        function addEvent(message, type, data = null) {
+            const eventDiv = document.createElement('div');
+            eventDiv.className = `event event-${type}`;
+
+            const timestamp = new Date().toLocaleTimeString();
+            eventDiv.innerHTML = `
+                <div class="event-timestamp">${timestamp}</div>
+                <div><strong>${message}</strong></div>
+                ${data ? `<pre>${JSON.stringify(data, null, 2)}</pre>` : ''}
+            `;
+
+            elements.eventsList.insertBefore(eventDiv, elements.eventsList.firstChild);
+
+            // Keep only last 50 events
+            while (elements.eventsList.children.length > 50) {
+                elements.eventsList.removeChild(elements.eventsList.lastChild);
+            }
+        }
+
+        // Clear events
+        function clearEvents() {
+            elements.eventsList.innerHTML = '';
+            samplesCount = 0;
+            elements.samplesCountDisplay.textContent = '0';
+            elements.cpuMetric.textContent = '-';
+            elements.memoryMetric.textContent = '-';
+        }
+
+        // Event listeners
+        elements.initBtn.addEventListener('click', initializeSession);
+        elements.sseBtn.addEventListener('click', startSSEMonitoring);
+        elements.stopBtn.addEventListener('click', stopMonitoring);
+        elements.clearBtn.addEventListener('click', clearEvents);
+
+        // Auto-initialize on page load
+        window.addEventListener('load', () => {
+            addEvent('🌟 MCP SSE Test Client loaded', 'start');
+            addEvent('📍 Ready to connect to MCP server', 'start');
+        });
+    </script>
+</body>
+
+</html>
