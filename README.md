@@ -6,6 +6,10 @@ Model Context Protocol (MCP) сервер для получения систем
 
 <https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#streamable-http>
 
+## Reference
+
+https://levelup.gitconnected.com/mcp-server-and-client-with-sse-the-new-streamable-http-d860850d9d9d
+
 ## Возможности сервера
 
 - Получение информации о CPU (количество ядер, модель, загрузка)
