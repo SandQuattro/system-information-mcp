@@ -85,7 +85,7 @@ func AuthMiddlewareWithConfig(config AuthConfig) fiber.Handler {
 
 			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 				"error":   "Unauthorized",
-				"message": "API key required for non-Cursor clients",
+				"message": "API key required",
 				"code":    "AUTH_INVALID_API_KEY",
 			})
 		}
