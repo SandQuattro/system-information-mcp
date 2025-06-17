@@ -366,6 +366,13 @@ func (h *FiberMCPHandler) handleJSONRPCMessage(request map[string]interface{}, s
 		return h.handleInitializeRequest(request)
 	}
 
+	// Обрабатываем notifications/initialized до проверки сессии, так как эта нотификация
+	// может прийти сразу после initialize и использовать последний созданный sessionID
+	if method == "notifications/initialized" {
+		mcpLogger.Debug().Msg("Handling notifications/initialized notification")
+		return h.handleInitializedNotification(request, sessionID)
+	}
+
 	session, exists := h.sessionManager.GetSession(sessionID)
 	if !exists {
 		mcpLogger.Warn().Msg("Session not found")
@@ -444,6 +451,52 @@ func (h *FiberMCPHandler) handleInitializeRequest(request map[string]interface{}
 			},
 		},
 	}
+}
+
+func (h *FiberMCPHandler) handleInitializedNotification(request map[string]interface{}, sessionID string) map[string]interface{} {
+	mcpLogger := logger.GetMCPLogger("notifications/initialized", sessionID)
+
+	// Находим сессию (обычно это последняя созданная сессия при инициализации)
+	session, exists := h.sessionManager.GetSession(sessionID)
+	if !exists {
+		// Пробуем использовать последнюю созданную сессию если переданный sessionID не найден
+		if lastSessionIDValue, ok := h.lastCreatedSessionID.Load("sessionID"); ok {
+			if lastSessionID, ok := lastSessionIDValue.(string); ok {
+				session, exists = h.sessionManager.GetSession(lastSessionID)
+				if exists {
+					mcpLogger.Debug().
+						Str("provided_session_id", sessionID).
+						Str("actual_session_id", lastSessionID).
+						Msg("Using last created session for notifications/initialized")
+					sessionID = lastSessionID
+				}
+			}
+		}
+
+		if !exists {
+			mcpLogger.Error().
+				Msg("Received notifications/initialized but no session exists - protocol violation")
+			return nil
+		}
+	}
+
+	// Проверяем что сессия еще не была инициализирована (защита от дублирующих нотификаций)
+	if session.IsInitialized() {
+		mcpLogger.Warn().
+			Str("session_id", sessionID).
+			Msg("Received duplicate notifications/initialized - ignoring")
+		return nil
+	}
+
+	// Устанавливаем флаг инициализации
+	session.SetInitialized()
+
+	mcpLogger.Info().
+		Str("session_id", sessionID).
+		Msg("Client initialization completed - session ready for MCP operations")
+
+	// Уведомления не требуют ответа согласно JSON-RPC протоколу
+	return nil
 }
 
 func (h *FiberMCPHandler) handleToolsListRequest(request map[string]interface{}, session *types.Session) map[string]interface{} {

@@ -13,6 +13,7 @@ type Session struct {
 	ID           string
 	CreatedAt    time.Time
 	LastActivity time.Time
+	Initialized  bool // Флаг что клиент отправил notifications/initialized
 	mu           sync.RWMutex
 }
 
@@ -45,12 +46,27 @@ func (s *Session) UpdateActivity() {
 	}
 }
 
+// SetInitialized устанавливает флаг что клиент завершил инициализацию
+func (s *Session) SetInitialized() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Initialized = true
+}
+
+// IsInitialized проверяет завершена ли инициализация
+func (s *Session) IsInitialized() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.Initialized
+}
+
 // Close закрывает сессию
 func (s *Session) Close() {
 	logger.Session.Info().
 		Str("session_id", s.ID).
 		Time("created_at", s.CreatedAt).
 		Time("last_activity", s.LastActivity).
+		Bool("was_initialized", s.Initialized).
 		Dur("session_duration", time.Since(s.CreatedAt)).
 		Msg("Closing session")
 }
