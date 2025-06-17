@@ -47,12 +47,6 @@ func (h *FiberMCPHandler) RegisterRoutes(app *fiber.App) {
 
 // HandleHealthCheck простой health check endpoint
 func (h *FiberMCPHandler) HandleHealthCheck(c *fiber.Ctx) error {
-	logger.HTTP.Info().
-		Str("method", "GET").
-		Str("path", "/").
-		Str("user_agent", c.Get("User-Agent")).
-		Msg("Health check request")
-
 	return c.JSON(map[string]interface{}{
 		"status":  "ok",
 		"service": "mcp-system-info",

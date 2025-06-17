@@ -145,6 +145,11 @@ func CustomLoggingMiddleware(config LoggingConfig) fiber.Handler {
 
 func RequestLoggingMiddleware() fiber.Handler {
 	return func(c *fiber.Ctx) error {
+		// Пропускаем логгирование для healthcheck endpoint
+		if c.Path() == "/" {
+			return c.Next()
+		}
+
 		start := time.Now()
 
 		// Извлекаем информацию о клиенте из заголовков
